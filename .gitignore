@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# App data & secrets
+budget_data.json
+*.env
+.env.*
+
+# Generated bills
+bills/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>经费审批与记账助手</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>经费审批与记账助手</h1>
+    </header>
+
+    <nav>
+      <button class="active" onclick="showTab('dashboard')">仪表盘</button>
+      <button onclick="showTab('approve')">审批/记账</button>
+      <button onclick="showTab('records')">记录</button>
+      <button onclick="showTab('bills')">账单</button>
+      <button onclick="showTab('settings')">设置</button>
+    </nav>
+
+    <!-- 仪表盘 -->
+    <div id="dashboard" class="section active">
+      <h2>本月概览</h2>
+      <div class="card-grid">
+        <div class="card">
+          <div class="label">本月预算</div>
+          <div class="value" id="dash-budget">0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">本月已用</div>
+          <div class="value" id="dash-spent">0.00</div>
+        </div>
+        <div class="card">
+          <div class="label">本月剩余</div>
+          <div class="value" id="dash-remaining">0.00</div>
+        </div>
+      </div>
+      <div id="meal-suggestion" style="margin-bottom:20px;display:none;"></div>
+
+      <h3>今日预算分配</h3>
+      <div class="card-grid" id="daily-allocation" style="margin-bottom:20px;"></div>
+
+      <h3>分类预算使用情况</h3>
+      <div id="category-bars"></div>
+    </div>
+
+    <!-- 审批/记账 -->
+    <div id="approve" class="section">
+      <h2>提交支出审批</h2>
+      <div id="approve-meal-tip" style="margin-bottom:16px;display:none;padding:10px 14px;background:#e8f4fd;border-radius:6px;color:#2980b9;font-size:0.95rem;"></div>
+      <form id="approve-form" onsubmit="submitBatchApproval(event)">
+        <div id="batch-items">
+          <div class="batch-row" data-index="0">
+            <div class="form-group">
+              <label>金额（元）</label>
+              <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
+            </div>
+            <div class="form-group">
+              <label>用途描述</label>
+              <input type="text" class="batch-desc" required placeholder="例如：午饭">
+            </div>
+            <div class="batch-remove-placeholder"></div>
+          </div>
+        </div>
+        <div class="batch-actions">
+          <button type="button" class="btn btn-secondary" onclick="addBatchRow()">+ 添加一项</button>
+          <button type="submit" class="btn btn-primary">提交审批</button>
+        </div>
+      </form>
+      <div id="approve-result" class="result-box"></div>
+    </div>
+
+    <!-- 记录 -->
+    <div id="records" class="section">
+      <h2>支出记录</h2>
+      <button class="btn btn-danger" onclick="clearRecords()" style="margin-bottom:15px;background:#e74c3c;color:white;">清空所有记录</button>
+      <div id="records-table"></div>
+    </div>
+
+    <!-- 账单 -->
+    <div id="bills" class="section">
+      <h2>账单</h2>
+      <button class="btn btn-primary" onclick="loadDailyBill()" style="margin-right:10px;margin-bottom:15px;">生成今日账单</button>
+      <button class="btn btn-primary" onclick="loadWeeklyBill()" style="margin-bottom:15px;">生成本周账单</button>
+      <div id="bill-content" class="bill-text"></div>
+    </div>
+
+    <!-- 设置 -->
+    <div id="settings" class="section">
+      <h2>预算设置</h2>
+      <form onsubmit="setBudget(event)">
+        <div class="config-grid">
+          <div class="form-group">
+            <label>每月总预算（元）</label>
+            <input type="number" id="set-budget-amount" step="0.01" required>
+          </div>
+          <div></div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-success">保存</button>
+          </div>
+        </div>
+      </form>
+
+      <h3>分类预算上限</h3>
+      <form onsubmit="setLimit(event)">
+        <div class="config-grid">
+          <div class="form-group">
+            <label>分类</label>
+            <select id="limit-category">
+              <option value="餐饮">餐饮</option>
+              <option value="交通">交通</option>
+              <option value="购物">购物</option>
+              <option value="娱乐">娱乐</option>
+              <option value="其他">其他</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>上限金额（元）</label>
+            <input type="number" id="limit-amount" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-success">设置</button>
+          </div>
+        </div>
+      </form>
+
+      <h3>AI 审批配置</h3>
+      <form onsubmit="saveConfig(event)">
+        <div class="form-group" style="margin-bottom:12px;">
+          <label>
+            <input type="checkbox" id="ai-enabled"> 启用 AI 智能审批（替代规则判断）
+          </label>
+        </div>
+        <div class="config-grid">
+          <div class="form-group">
+            <label>模型</label>
+            <select id="ai-model">
+              <option value="deepseek-v4-pro">DeepSeek V4 Pro (推荐)</option>
+              <option value="deepseek-v4-flash">DeepSeek V4 Flash (更快更便宜)</option>
+              <option value="qwen-turbo">通义千问</option>
+              <option value="glm-4">智谱 GLM</option>
+              <option value="custom">自定义</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>API Key</label>
+            <input type="password" id="ai-api-key" placeholder="输入你的 API Key">
+          </div>
+          <div class="form-group">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-success">保存</button>
+          </div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>API 地址（一般不用改）</label>
+          <input type="text" id="ai-base-url" value="https://api.deepseek.com/v1">
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label>饮食偏好 / 忌口</label>
+          <input type="text" id="ai-dietary" placeholder="例如：不吃鱼、不吃辣、素食" onblur="autoSaveDietary()">
+          <span id="dietary-save-hint" style="color:#27ae60;font-size:0.8rem;margin-left:8px;opacity:0;transition:opacity 0.3s;"></span>
+        </div>
+        <p style="color:#7f8c8d;font-size:0.85rem;margin-top:8px;">
+          提示：默认使用 DeepSeek API，需前往 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> 注册获取 Key。也可选择通义千问、智谱 GLM 等兼容 OpenAI 格式的 API。
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      event.target.classList.add('active');
+      if (id === 'dashboard') { loadDashboard(); loadMealSuggestion(); }
+      if (id === 'records') loadRecords();
+      if (id === 'approve') loadMealSuggestion();
+    }
+
+    async function loadMealSuggestion() {
+      try {
+        const data = await api('/api/meal-suggestion');
+        const dash = document.getElementById('meal-suggestion');
+        const tip = document.getElementById('approve-meal-tip');
+        if (data.meal) {
+          let recsHtml = '';
+          if (data.recommendations && data.recommendations.length > 0) {
+            recsHtml = '<div style="margin-top:10px;"><strong>推荐：</strong>' +
+              data.recommendations.map(r =>
+                `<span style="display:inline-block;margin:4px 8px 4px 0;padding:4px 10px;background:#d4edda;border-radius:12px;color:#155724;font-size:0.85rem;">${r.name} ~${r.price}元</span>`
+              ).join('') +
+              '</div>';
+          }
+          const html = `
+            <div style="padding:14px 16px;background:#e8f4fd;border-radius:8px;color:#2980b9;font-size:0.95rem;">
+              <strong>${data.meal}建议</strong>：建议控制在 <strong>${data.suggestion.toFixed(2)}</strong> 元内
+              <span style="color:#7f8c8d;font-size:0.85rem;">（日均 ${data.daily_budget.toFixed(2)} 元，今天餐饮已用 ${data.daily_spent.toFixed(2)} 元）</span>
+              ${recsHtml}
+            </div>
+          `;
+          if (dash) { dash.innerHTML = html; dash.style.display = 'block'; }
+
+          let tipRecs = '';
+          if (data.recommendations && data.recommendations.length > 0) {
+            tipRecs = '<br><span style="font-size:0.85rem;color:#27ae60;">推荐：' +
+              data.recommendations.map(r => `${r.name} ~${r.price}元`).join('、') +
+              '</span>';
+          }
+          if (tip) { tip.innerHTML = `当前是<strong>${data.meal}</strong>，建议控制在 <strong>${data.suggestion.toFixed(2)} 元</strong>内${tipRecs}`; tip.style.display = 'block'; }
+        } else {
+          if (dash) dash.style.display = 'none';
+          if (tip) tip.style.display = 'none';
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    async function api(url, opts) {
+      const res = await fetch(url, opts);
+      return res.json();
+    }
+
+    async function loadDashboard() {
+      const data = await api('/api/budget');
+      document.getElementById('dash-budget').textContent = data.monthly_budget.toFixed(2);
+      document.getElementById('dash-spent').textContent = data.month_spent.toFixed(2);
+      const rem = document.getElementById('dash-remaining');
+      rem.textContent = data.remaining.toFixed(2);
+      rem.classList.toggle('warning', data.remaining < data.monthly_budget * 0.2);
+
+      // 今日预算分配
+      const allocContainer = document.getElementById('daily-allocation');
+      if (data.daily_budget > 0 && data.categories.length) {
+        const allocCards = data.categories.map(c => `
+          <div class="card">
+            <div class="label">${c.name}</div>
+            <div class="value">${c.daily_alloc.toFixed(2)}</div>
+          </div>
+        `).join('');
+        allocContainer.innerHTML = `
+          <div class="card" style="background:#e8f4fd;">
+            <div class="label">日均预算</div>
+            <div class="value" style="color:#2980b9;">${data.daily_budget.toFixed(2)}</div>
+          </div>
+          ${allocCards}
+        `;
+      }
+
+      const bars = document.getElementById('category-bars');
+      if (!data.categories.length) {
+        bars.innerHTML = '<p class="empty-msg">暂无分类预算设置</p>';
+        return;
+      }
+      bars.innerHTML = data.categories.map(c => {
+        const pct = c.limit > 0 ? Math.min(c.percent, 100) : 0;
+        let cls = '';
+        if (c.percent >= 100) cls = 'danger';
+        else if (c.percent >= 80) cls = 'warning';
+        return `
+          <div class="progress-item">
+            <div class="progress-header">
+              <span>${c.name}</span>
+              <span>${c.spent.toFixed(2)} / ${c.limit > 0 ? c.limit.toFixed(2) : '未设置'}</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill ${cls}" style="width:${pct}%"></div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function addBatchRow() {
+      const container = document.getElementById('batch-items');
+      const idx = container.children.length;
+      const row = document.createElement('div');
+      row.className = 'batch-row';
+      row.dataset.index = idx;
+      row.innerHTML = `
+        <div class="form-group">
+          <label>金额（元）</label>
+          <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
+        </div>
+        <div class="form-group">
+          <label>用途描述</label>
+          <input type="text" class="batch-desc" required placeholder="例如：奶茶">
+        </div>
+        <button type="button" class="btn btn-remove" onclick="removeBatchRow(this)" title="删除">-</button>
+      `;
+      container.appendChild(row);
+    }
+
+    function removeBatchRow(btn) {
+      const container = document.getElementById('batch-items');
+      if (container.children.length <= 1) {
+        alert('至少保留一项');
+        return;
+      }
+      btn.parentElement.remove();
+    }
+
+    async function submitBatchApproval(e) {
+      e.preventDefault();
+      const rows = document.querySelectorAll('.batch-row');
+      const items = [];
+      rows.forEach(row => {
+        const amount = parseFloat(row.querySelector('.batch-amount').value);
+        const desc = row.querySelector('.batch-desc').value;
+        if (!isNaN(amount) && desc.trim()) {
+          items.push({ amount, description: desc.trim() });
+        }
+      });
+
+      if (items.length === 0) {
+        alert('请至少填写一项支出');
+        return;
+      }
+
+      const result = await api('/api/approve/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items })
+      });
+
+      const box = document.getElementById('approve-result');
+      box.className = 'result-box show ' + (result.approved ? 'approved' : 'rejected');
+
+      let itemsHtml = '';
+      if (result.items && result.items.length > 0) {
+        itemsHtml = '<br><br>明细：<br>' + result.items.map(i =>
+          `&nbsp;&nbsp;${i.description} ${i.amount.toFixed(2)}元 [${i.category}]`
+        ).join('<br>');
+      }
+
+      box.innerHTML = `<strong>${result.approved ? '批准' : '拒绝'}</strong>（本次合计 ${result.total ? result.total.toFixed(2) : items.reduce((s, i) => s + i.amount, 0).toFixed(2)} 元）<br>
+        理由：${result.reason}${itemsHtml}`;
+
+      // Reset form to single row
+      document.getElementById('batch-items').innerHTML = `
+        <div class="batch-row" data-index="0">
+          <div class="form-group">
+            <label>金额（元）</label>
+            <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
+          </div>
+          <div class="form-group">
+            <label>用途描述</label>
+            <input type="text" class="batch-desc" required placeholder="例如：午饭">
+          </div>
+        </div>
+      `;
+    }
+
+    async function clearRecords() {
+      if (!confirm('确定要清空所有记录吗？此操作不可恢复。')) return;
+      await api('/api/records', { method: 'DELETE' });
+      loadRecords();
+      loadDashboard();
+    }
+
+    async function loadRecords() {
+      const data = await api('/api/records');
+      const container = document.getElementById('records-table');
+      if (!data.records.length) {
+        container.innerHTML = '<p class="empty-msg">暂无记录</p>';
+        return;
+      }
+      const rows = data.records.map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td>${r.amount.toFixed(2)}</td>
+          <td>${r.category}</td>
+          <td>${r.description}</td>
+          <td class="${r.approved ? 'status-approved' : 'status-rejected'}">${r.approved ? '通过' : '拒绝'}</td>
+        </tr>
+      `).join('');
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>时间</th><th>金额</th><th>分类</th><th>用途</th><th>状态</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function loadDailyBill() {
+      const data = await api('/api/bill/daily');
+      document.getElementById('bill-content').textContent = data.bill;
+    }
+
+    async function loadWeeklyBill() {
+      const data = await api('/api/bill/weekly');
+      document.getElementById('bill-content').textContent = data.bill;
+    }
+
+    async function setBudget(e) {
+      e.preventDefault();
+      const amount = parseFloat(document.getElementById('set-budget-amount').value);
+      await api('/api/budget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+      alert('月预算已保存');
+      document.getElementById('set-budget-amount').value = '';
+    }
+
+    async function setLimit(e) {
+      e.preventDefault();
+      const category = document.getElementById('limit-category').value;
+      const amount = parseFloat(document.getElementById('limit-amount').value);
+      await api('/api/limits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category, amount })
+      });
+      alert(`【${category}】上限已设置为 ${amount.toFixed(2)} 元`);
+      document.getElementById('limit-amount').value = '';
+    }
+
+    async function loadConfig() {
+      const data = await api('/api/config');
+      document.getElementById('ai-enabled').checked = data.enabled;
+      document.getElementById('ai-model').value = data.model;
+      document.getElementById('ai-base-url').value = data.base_url;
+      document.getElementById('ai-dietary').value = data.dietary_preferences || '';
+      if (data.has_key) {
+        document.getElementById('ai-api-key').placeholder = '已保存（输入新值可覆盖）';
+      }
+    }
+
+    async function saveConfig(e) {
+      e.preventDefault();
+      const payload = {
+        enabled: document.getElementById('ai-enabled').checked,
+        model: document.getElementById('ai-model').value,
+        base_url: document.getElementById('ai-base-url').value,
+        dietary_preferences: document.getElementById('ai-dietary').value.trim(),
+      };
+      const key = document.getElementById('ai-api-key').value.trim();
+      if (key) payload.api_key = key;
+      await api('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      alert('AI 配置已保存');
+      document.getElementById('ai-api-key').value = '';
+      loadConfig();
+    }
+
+    async function autoSaveDietary() {
+      const value = document.getElementById('ai-dietary').value.trim();
+      const hint = document.getElementById('dietary-save-hint');
+      await api('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dietary_preferences: value })
+      });
+      hint.textContent = '已保存';
+      hint.style.opacity = '1';
+      setTimeout(() => { hint.style.opacity = '0'; }, 1500);
+    }
+
+    loadDashboard();
+    loadConfig();
+    loadMealSuggestion();
+  </script>
+</body>
+</html>

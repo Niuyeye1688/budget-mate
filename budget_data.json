@@ -1,0 +1,19 @@
+{
+  "monthly_budget": 500.0,
+  "category_limits": {
+    "餐饮": 1000.0,
+    "交通": 200.0,
+    "购物": 300.0,
+    "娱乐": 200.0,
+    "其他": 100.0
+  },
+  "records": [],
+  "api_config": {
+    "enabled": true,
+    "api_key": "sk-c6af7e4138ce4f70b416b1f1de41d1c2",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-v4-flash",
+    "dietary_preferences": "不吃鱼、不吃辣、不吃黄焖鸡"
+  },
+  "current_month": "2026-05"
+}

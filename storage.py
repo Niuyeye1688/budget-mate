@@ -3,14 +3,11 @@ import os
 import sys
 from datetime import datetime
 
-if getattr(sys, 'frozen', False):
-    base_dir = os.path.join(
-        os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
-        'budget-mate'
-    )
-    os.makedirs(base_dir, exist_ok=True)
-else:
-    base_dir = os.path.dirname(__file__)
+base_dir = os.path.join(
+    os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+    'budget-mate'
+)
+os.makedirs(base_dir, exist_ok=True)
 
 DATA_FILE = os.path.join(base_dir, "budget_data.json")
 

@@ -11,16 +11,23 @@ import webview
 from app import app
 
 
-def get_free_port():
+def get_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    try:
+        s.bind(("0.0.0.0", 5000))
+        s.close()
+        return 5000
+    except OSError:
+        s.close()
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+        s.close()
+        return port
 
 
 def run_flask(port):
-    app.run(debug=False, host="127.0.0.1", port=port, use_reloader=False)
+    app.run(debug=False, host="0.0.0.0", port=port, use_reloader=False)
 
 
 def wait_for_server(port, timeout=30):
@@ -37,7 +44,7 @@ def wait_for_server(port, timeout=30):
 
 
 if __name__ == "__main__":
-    port = get_free_port()
+    port = get_port()
     t = threading.Thread(target=run_flask, args=(port,), daemon=True)
     t.start()
     if not wait_for_server(port):

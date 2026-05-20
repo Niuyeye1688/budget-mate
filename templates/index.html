@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>经费审批与记账助手</title>
   <link rel="stylesheet" href="/static/style.css">
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#2c3e50">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body>
   <div class="container">
@@ -168,10 +172,106 @@
           提示：默认使用 DeepSeek API，需前往 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a> 注册获取 Key。也可选择通义千问、智谱 GLM 等兼容 OpenAI 格式的 API。
         </p>
       </form>
+
+      <h3>数据同步</h3>
+      <div style="margin-bottom:20px;">
+        <button class="btn btn-primary" onclick="exportDataFile()" style="margin-right:10px;">导出数据</button>
+        <label class="btn btn-success" style="display:inline-block;position:relative;cursor:pointer;">
+          导入数据
+          <input type="file" id="import-file" accept=".json" style="position:absolute;left:0;top:0;opacity:0;width:100%;height:100%;cursor:pointer;" onchange="importDataFile(event)">
+        </label>
+      </div>
     </div>
   </div>
 
+  <script src="/static/db.js"></script>
+  <script src="/static/app-logic.js"></script>
   <script>
+    let backendChecked = false;
+    let useBackend = true;
+
+    async function detectBackend() {
+      if (backendChecked) return;
+      try {
+        await fetch('/api/budget', { method: 'HEAD' });
+        useBackend = true;
+      } catch (e) {
+        useBackend = false;
+        await checkMonthlyReset();
+      }
+      backendChecked = true;
+    }
+
+    async function api(url, opts) {
+      await detectBackend();
+      if (useBackend) {
+        const res = await fetch(url, opts);
+        return res.json();
+      }
+      // Frontend fallback
+      if (url === '/api/budget' && !opts) return await getBudgetData();
+      if (url === '/api/budget' && opts?.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        await setMonthlyBudget(body.amount);
+        return { success: true, monthly_budget: body.amount };
+      }
+      if (url === '/api/limits' && opts?.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        await setCategoryLimit(body.category, body.amount);
+        return { success: true, category: body.category, limit: body.amount };
+      }
+      if (url === '/api/records' && !opts) return { records: (await getAllRecords()).reverse() };
+      if (url === '/api/records' && opts?.method === 'DELETE') {
+        await clearAllRecords();
+        return { success: true };
+      }
+      if (url === '/api/approve' && opts?.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        const result = await judgeExpense(body.amount, body.description);
+        await addRecord(body.amount, body.description, result.category, result.approved);
+        return result;
+      }
+      if (url === '/api/approve/batch' && opts?.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        const result = await judgeBatchExpense(body.items);
+        if (result.approved) {
+          for (const item of result.items) {
+            await addRecord(item.amount, item.description, item.category, true);
+          }
+        } else {
+          for (const item of result.items) {
+            await addRecord(item.amount, item.description, item.category, false);
+          }
+        }
+        return result;
+      }
+      if (url === '/api/bill/daily') return { bill: await generateDailyBill() };
+      if (url === '/api/bill/weekly') return { bill: await generateWeeklyBill() };
+      if (url === '/api/meal-suggestion') return await getMealSuggestion();
+      if (url === '/api/config' && !opts) {
+        const cfg = await getConfig('api_config', {});
+        return {
+          enabled: cfg.enabled || false,
+          base_url: cfg.base_url || 'https://api.deepseek.com',
+          model: cfg.model || 'deepseek-v4-pro',
+          has_key: !!cfg.api_key,
+          dietary_preferences: cfg.dietary_preferences || '',
+        };
+      }
+      if (url === '/api/config' && opts?.method === 'POST') {
+        const body = JSON.parse(opts.body);
+        const cfg = await getConfig('api_config', {});
+        if ('enabled' in body) cfg.enabled = body.enabled;
+        if ('api_key' in body) cfg.api_key = body.api_key;
+        if ('base_url' in body) cfg.base_url = body.base_url;
+        if ('model' in body) cfg.model = body.model;
+        if ('dietary_preferences' in body) cfg.dietary_preferences = body.dietary_preferences;
+        await setConfig('api_config', cfg);
+        return { success: true };
+      }
+      return {};
+    }
+
     function showTab(id) {
       document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
       document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
@@ -466,6 +566,29 @@
       hint.textContent = '已保存';
       hint.style.opacity = '1';
       setTimeout(() => { hint.style.opacity = '0'; }, 1500);
+    }
+
+    async function exportDataFile() {
+      await exportToJSON();
+    }
+
+    async function importDataFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        await importFromJSON(file);
+        alert('数据导入成功');
+        loadDashboard();
+        loadRecords();
+        loadConfig();
+      } catch (err) {
+        alert('导入失败：' + err.message);
+      }
+      e.target.value = '';
+    }
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js').catch(() => {});
     }
 
     loadDashboard();

@@ -122,6 +122,20 @@ def get_meal_suggestion():
     if meal is None:
         return {"meal": None}
 
+    # 如果当前餐段已有餐饮支出，不再提示
+    meals = [
+        ("午餐", list(range(11, 17))),
+        ("晚餐", list(range(17, 24)) + list(range(0, 11))),
+    ]
+    current_meal_hours = next((m[1] for m in meals if m[0] == meal), [])
+    has_meal = any(
+        r for r in today_records
+        if r["category"] == "餐饮" and r["approved"]
+        and datetime.strptime(r["date"], "%Y-%m-%d %H:%M:%S").hour in current_meal_hours
+    )
+    if has_meal:
+        return {"meal": None}
+
     # 计算当月剩余天数（含今天）
     last_day = calendar.monthrange(now.year, now.month)[1]
     remaining_days = last_day - now.day + 1

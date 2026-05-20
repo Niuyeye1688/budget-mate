@@ -462,6 +462,18 @@ async function getMealSuggestion() {
   const [meal, remainingMeals] = _getMealByHour(hour);
   if (!meal) return { meal: null };
 
+  // 如果当前餐段已有餐饮支出，不再提示
+  const todayRecords = await getTodayRecords();
+  const currentMealHours = meal === '午餐'
+    ? [...Array(6).keys()].map(i => i + 11)
+    : [...Array(7).keys()].map(i => i + 17).concat([...Array(11).keys()].map(i => i));
+  const hasMeal = todayRecords.some(r => {
+    if (r.category !== '餐饮' || !r.approved) return false;
+    const rh = new Date(r.date.replace(' ', 'T')).getHours();
+    return currentMealHours.includes(rh);
+  });
+  if (hasMeal) return { meal: null };
+
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const lastDay = new Date(year, month, 0).getDate();

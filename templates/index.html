@@ -521,12 +521,20 @@
 
     async function loadDailyBill() {
       const data = await api('/api/bill/daily');
-      document.getElementById('bill-content').textContent = data.bill;
+      let bill = data.bill;
+      if (window.innerWidth <= 600) {
+        bill = bill.replace(/={20,}/g, '='.repeat(30));
+      }
+      document.getElementById('bill-content').textContent = bill;
     }
 
     async function loadWeeklyBill() {
       const data = await api('/api/bill/weekly');
-      document.getElementById('bill-content').textContent = data.bill;
+      let bill = data.bill;
+      if (window.innerWidth <= 600) {
+        bill = bill.replace(/={20,}/g, '='.repeat(30));
+      }
+      document.getElementById('bill-content').textContent = bill;
     }
 
     async function setBudget(e) {

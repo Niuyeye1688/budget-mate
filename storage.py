@@ -1,8 +1,18 @@
 import json
 import os
+import sys
 from datetime import datetime
 
-DATA_FILE = os.path.join(os.path.dirname(__file__), "budget_data.json")
+if getattr(sys, 'frozen', False):
+    base_dir = os.path.join(
+        os.environ.get('LOCALAPPDATA', os.path.expanduser('~')),
+        'budget-mate'
+    )
+    os.makedirs(base_dir, exist_ok=True)
+else:
+    base_dir = os.path.dirname(__file__)
+
+DATA_FILE = os.path.join(base_dir, "budget_data.json")
 
 DEFAULT_DATA = {
     "monthly_budget": 0,

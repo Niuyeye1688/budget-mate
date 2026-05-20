@@ -193,4 +193,7 @@ def api_meal_suggestion():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    if getattr(sys, 'frozen', False):
+        app.run(debug=False, port=5000, use_reloader=False)
+    else:
+        app.run(debug=True, port=5000)

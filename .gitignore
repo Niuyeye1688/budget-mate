@@ -23,6 +23,17 @@ budget_data.json
 # Generated bills
 bills/
 
+# Build artifacts
+build/
+dist/
+*.spec
+*.vbs
+*.ps1
+
+# PyInstaller
+*.manifest
+*.egg-info/
+
 # OS
 .DS_Store
 Thumbs.db

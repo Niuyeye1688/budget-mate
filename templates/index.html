@@ -20,6 +20,7 @@
       <button class="active" onclick="showTab('dashboard')">仪表盘</button>
       <button onclick="showTab('approve')">审批/记账</button>
       <button onclick="showTab('records')">记录</button>
+      <button onclick="showTab('approvals')">审批记录</button>
       <button onclick="showTab('bills')">账单</button>
       <button onclick="showTab('settings')">设置</button>
     </nav>
@@ -81,6 +82,12 @@
       <h2>支出记录</h2>
       <button class="btn btn-danger" onclick="clearRecords()" style="margin-bottom:15px;background:#e74c3c;color:white;">清空所有记录</button>
       <div id="records-table"></div>
+    </div>
+
+    <!-- 审批记录 -->
+    <div id="approvals" class="section">
+      <h2>审批记录</h2>
+      <div id="approvals-table"></div>
     </div>
 
     <!-- 账单 -->
@@ -205,8 +212,13 @@
     async function api(url, opts) {
       await detectBackend();
       if (useBackend) {
-        const res = await fetch(url, opts);
-        return res.json();
+        try {
+          const res = await fetch(url, opts);
+          return await res.json();
+        } catch (e) {
+          useBackend = false;
+          backendChecked = false;
+        }
       }
       // Frontend fallback
       if (url === '/api/budget' && !opts) return await getBudgetData();
@@ -228,20 +240,15 @@
       if (url === '/api/approve' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         const result = await judgeExpense(body.amount, body.description);
-        await addRecord(body.amount, body.description, result.category, result.approved);
+        await addRecord(body.amount, body.description, result.category, result.approved, result.reason);
         return result;
       }
       if (url === '/api/approve/batch' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         const result = await judgeBatchExpense(body.items);
-        if (result.approved) {
-          for (const item of result.items) {
-            await addRecord(item.amount, item.description, item.category, true);
-          }
-        } else {
-          for (const item of result.items) {
-            await addRecord(item.amount, item.description, item.category, false);
-          }
+        const reason = result.reason || '';
+        for (const item of result.items) {
+          await addRecord(item.amount, item.description, item.category, result.approved, reason);
         }
         return result;
       }
@@ -279,6 +286,7 @@
       event.target.classList.add('active');
       if (id === 'dashboard') { loadDashboard(); loadMealSuggestion(); }
       if (id === 'records') loadRecords();
+      if (id === 'approvals') loadApprovals();
       if (id === 'approve') loadMealSuggestion();
     }
 
@@ -461,8 +469,34 @@
     async function loadRecords() {
       const data = await api('/api/records');
       const container = document.getElementById('records-table');
-      if (!data.records.length) {
+      const approvedRecords = data.records.filter(r => r.approved);
+      if (!approvedRecords.length) {
         container.innerHTML = '<p class="empty-msg">暂无记录</p>';
+        return;
+      }
+      const rows = approvedRecords.map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td>${r.amount.toFixed(2)}</td>
+          <td>${r.category}</td>
+          <td>${r.description}</td>
+        </tr>
+      `).join('');
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>时间</th><th>金额</th><th>分类</th><th>用途</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    async function loadApprovals() {
+      const data = await api('/api/records');
+      const container = document.getElementById('approvals-table');
+      if (!data.records.length) {
+        container.innerHTML = '<p class="empty-msg">暂无审批记录</p>';
         return;
       }
       const rows = data.records.map(r => `
@@ -472,12 +506,13 @@
           <td>${r.category}</td>
           <td>${r.description}</td>
           <td class="${r.approved ? 'status-approved' : 'status-rejected'}">${r.approved ? '通过' : '拒绝'}</td>
+          <td>${r.reason || '-'}</td>
         </tr>
       `).join('');
       container.innerHTML = `
         <table>
           <thead>
-            <tr><th>时间</th><th>金额</th><th>分类</th><th>用途</th><th>状态</th></tr>
+            <tr><th>时间</th><th>金额</th><th>分类</th><th>用途</th><th>状态</th><th>理由</th></tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>

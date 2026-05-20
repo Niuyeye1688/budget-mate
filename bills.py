@@ -9,15 +9,14 @@ from storage import load_data, save_data, DATA_FILE
 
 
 def format_records(records):
-    if not records:
+    approved = [r for r in records if r.get("approved", True)]
+    if not approved:
         return "  暂无记录"
     lines = []
     total = 0
-    for r in records:
-        status = "[通过]" if r["approved"] else "[拒绝]"
-        lines.append(f"  [{r['date']}] {r['amount']:.2f} 元 | {r['category']} | {r['description']} | {status}")
-        if r["approved"]:
-            total += r["amount"]
+    for r in approved:
+        lines.append(f"  [{r['date']}] {r['amount']:.2f} 元 | {r['category']} | {r['description']}")
+        total += r["amount"]
     lines.append(f"\n  合计支出: {total:.2f} 元")
     return "\n".join(lines)
 

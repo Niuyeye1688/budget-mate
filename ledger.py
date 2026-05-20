@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from storage import load_data, save_data, get_current_month
 
 
-def add_record(amount, description, category, approved):
+def add_record(amount, description, category, approved, reason=""):
     data = load_data()
     record = {
         "id": len(data["records"]) + 1,
@@ -11,6 +11,7 @@ def add_record(amount, description, category, approved):
         "description": description,
         "category": category,
         "approved": approved,
+        "reason": reason,
     }
     data["records"].append(record)
     save_data(data)

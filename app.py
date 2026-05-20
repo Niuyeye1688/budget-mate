@@ -132,7 +132,7 @@ def api_approve():
     description = data.get("description", "")
     result = judge_expense(amount, description)
     cat = result["category"]
-    add_record(amount, description, cat, approved=result["approved"])
+    add_record(amount, description, cat, approved=result["approved"], reason=result.get("reason", ""))
     return jsonify(result)
 
 
@@ -141,23 +141,15 @@ def api_approve_batch():
     data = request.get_json()
     items = data.get("items", [])
     result = judge_batch_expense(items)
-    if result["approved"]:
-        for item in result.get("items", []):
-            add_record(
-                item["amount"],
-                item["description"],
-                item["category"],
-                approved=True,
-            )
-    else:
-        # Still record as rejected for audit
-        for item in result.get("items", []):
-            add_record(
-                item["amount"],
-                item["description"],
-                item["category"],
-                approved=False,
-            )
+    reason = result.get("reason", "")
+    for item in result.get("items", []):
+        add_record(
+            item["amount"],
+            item["description"],
+            item["category"],
+            approved=result["approved"],
+            reason=reason,
+        )
     return jsonify(result)
 
 

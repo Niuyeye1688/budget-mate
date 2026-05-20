@@ -20,7 +20,7 @@ async function getRemainingBudget() {
 }
 
 // ========== Records ==========
-async function addRecord(amount, description, category, approved) {
+async function addRecord(amount, description, category, approved, reason = '') {
   const record = {
     id: Date.now(),
     date: new Date().toISOString().replace('T', ' ').slice(0, 19),
@@ -28,6 +28,7 @@ async function addRecord(amount, description, category, approved) {
     description: description,
     category: category,
     approved: approved,
+    reason: reason,
   };
   await dbAddRecord(record);
   return record;
@@ -323,12 +324,12 @@ async function judgeBatchExpense(items) {
 
 // ========== Bills ==========
 async function formatRecords(records) {
-  if (!records || !records.length) return '  暂无记录';
+  const approved = records.filter(r => r.approved);
+  if (!approved.length) return '  暂无记录';
   let total = 0;
-  const lines = records.map(r => {
-    const status = r.approved ? '[通过]' : '[拒绝]';
-    if (r.approved) total += r.amount;
-    return `  [${r.date}] ${r.amount.toFixed(2)} 元 | ${r.category} | ${r.description} | ${status}`;
+  const lines = approved.map(r => {
+    total += r.amount;
+    return `  [${r.date}] ${r.amount.toFixed(2)} 元 | ${r.category} | ${r.description}`;
   });
   lines.push(`\n  合计支出: ${total.toFixed(2)} 元`);
   return lines.join('\n');

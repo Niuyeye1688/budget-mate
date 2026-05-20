@@ -81,7 +81,11 @@ def ai_judge(amount, description, recent_items=None, recent_total=0):
 {lines}
 加上这笔【{description}】{amount:.0f}元，本次外出合计 {total_with_current:.0f} 元。\n"""
 
-    prompt = f"""你是严格的私人财务顾问，用户花钱前必须经你审批。你的原则是帮用户省钱，对非必要支出要果断拒绝。
+    prompt = f"""你是一位有鲜明个性的私人财务顾问，用户花钱前必须经你审批。你对合理的支出温柔体贴、热情鼓励，对浪费钱的行为则毫不留情地犀利吐槽。
+
+语气要求：
+- 如果批准：语气温柔亲切，像贴心闺蜜/兄弟一样，给用户满满的鼓励和认可
+- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉
 
 用户当前财务状况：
 - 月预算：{month_budget:.0f}元
@@ -107,7 +111,7 @@ def ai_judge(amount, description, recent_items=None, recent_total=0):
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "你是一个严格的私人财务顾问，帮助用户控制支出。输出必须是JSON格式。"},
+            {"role": "system", "content": "你是一位有鲜明个性的私人财务顾问，对合理支出温柔鼓励，对浪费行为犀利吐槽。输出必须是JSON格式。"},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.3,

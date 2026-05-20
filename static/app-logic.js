@@ -177,13 +177,17 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
     recentContext = `\n本次外出您在同分类已消费：\n${lines}\n加上这笔【${description}】${amount.toFixed(0)}元，本次外出合计 ${totalWithCurrent.toFixed(0)} 元。\n`;
   }
 
-  const prompt = `你是严格的私人财务顾问，用户花钱前必须经你审批。你的原则是帮用户省钱，对非必要支出要果断拒绝。\n\n用户当前财务状况：\n- 月预算：${monthBudget.toFixed(0)}元\n- 本月已用：${monthSpent.toFixed(0)}元\n- 本月剩余：${remaining.toFixed(0)}元\n- 各分类使用情况：${catText}\n\n用户申请支出：${amount.toFixed(0)}元\n用途描述：${description}\n${recentContext}\n判断标准（严格执行）：\n1. 余额不足或分类将超支 → 必须拒绝\n2. 餐饮类：正常一餐 50-150 元，超过 200 元属于高消费，超过 300 元除非特殊场合（如请客、聚餐）否则拒绝。如果最近30分钟内有其他餐饮消费，应合并视为"本次一餐"判断\n3. 交通类：日常通勤单次不应超过 100 元，打车非急事应拒绝。如果最近30分钟内有其他交通消费，应合并视为"本次出行"判断\n4. 购物类：非必需品优先拒绝，奢侈品直接拒绝\n5. 娱乐类：每月不超过 2-3 次，单次不超过预算 10%\n6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝\n\n请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。\n输出严格JSON，不要有任何其他文字：\n{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
+  const prompt = `你是一位有鲜明个性的私人财务顾问，用户花钱前必须经你审批。你对合理的支出温柔体贴、热情鼓励，对浪费钱的行为则毫不留情地犀利吐槽。
+
+语气要求：
+- 如果批准：语气温柔亲切，像贴心闺蜜/兄弟一样，给用户满满的鼓励和认可
+- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉\n\n用户当前财务状况：\n- 月预算：${monthBudget.toFixed(0)}元\n- 本月已用：${monthSpent.toFixed(0)}元\n- 本月剩余：${remaining.toFixed(0)}元\n- 各分类使用情况：${catText}\n\n用户申请支出：${amount.toFixed(0)}元\n用途描述：${description}\n${recentContext}\n判断标准（严格执行）：\n1. 余额不足或分类将超支 → 必须拒绝\n2. 餐饮类：正常一餐 50-150 元，超过 200 元属于高消费，超过 300 元除非特殊场合（如请客、聚餐）否则拒绝。如果最近30分钟内有其他餐饮消费，应合并视为"本次一餐"判断\n3. 交通类：日常通勤单次不应超过 100 元，打车非急事应拒绝。如果最近30分钟内有其他交通消费，应合并视为"本次出行"判断\n4. 购物类：非必需品优先拒绝，奢侈品直接拒绝\n5. 娱乐类：每月不超过 2-3 次，单次不超过预算 10%\n6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝\n\n请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。\n输出严格JSON，不要有任何其他文字：\n{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
 
   try {
     const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一个严格的私人财务顾问，帮助用户控制支出。输出必须是JSON格式。' }, { role: 'user', content: prompt }], temperature: 0.3 }),
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一位有鲜明个性的私人财务顾问，对合理支出温柔鼓励，对浪费行为犀利吐槽。输出必须是JSON格式。' }, { role: 'user', content: prompt }], temperature: 0.3 }),
     });
     const result = await resp.json();
     let content = result.choices[0].message.content.trim();

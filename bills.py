@@ -25,15 +25,15 @@ def generate_daily_bill():
     today = datetime.now().strftime("%Y-%m-%d")
     records = get_today_records()
     lines = [
-        "=" * 50,
+        "=" * 40,
         f"[每日账单] {today}",
-        "=" * 50,
+        "=" * 40,
         format_records(records),
-        "=" * 50,
+        "=" * 40,
         f"[本月预算] {get_monthly_budget():.2f} 元",
         f"[本月已用] {get_month_spent():.2f} 元",
         f"[本月剩余] {get_remaining_budget():.2f} 元",
-        "=" * 50,
+        "=" * 40,
     ]
     return "\n".join(lines)
 
@@ -63,9 +63,9 @@ def generate_weekly_bill():
             cat_lines.append(f"  {cat}: {spent:.2f} 元 (无上限)")
 
     lines = [
-        "=" * 50,
+        "=" * 40,
         f"[每周账单] {start} 至 {end}",
-        "=" * 50,
+        "=" * 40,
         "【明细】",
         format_records(records),
         "",
@@ -81,7 +81,7 @@ def generate_weekly_bill():
         f"  本周总支出: {total:.2f} 元",
         f"  本月预算: {get_monthly_budget():.2f} 元",
         f"  本月剩余: {get_remaining_budget():.2f} 元",
-        "=" * 50,
+        "=" * 40,
     ])
     return "\n".join(lines)
 
@@ -279,9 +279,9 @@ def generate_monthly_bill(month):
     remaining = get_monthly_budget() - total
 
     lines = [
-        "=" * 50,
+        "=" * 40,
         f"[月度账单] {month}",
-        "=" * 50,
+        "=" * 40,
         "【明细】",
         format_records(month_records),
         "",
@@ -297,7 +297,7 @@ def generate_monthly_bill(month):
         f"  本月总支出: {total:.2f} 元",
         f"  本月预算: {get_monthly_budget():.2f} 元",
         f"  本月剩余: {remaining:.2f} 元",
-        "=" * 50,
+        "=" * 40,
     ])
     return "\n".join(lines)
 

@@ -339,15 +339,15 @@ async function generateDailyBill() {
   const today = new Date().toISOString().slice(0, 10);
   const records = await getTodayRecords();
   const lines = [
-    '='.repeat(50),
+    '='.repeat(40),
     `[每日账单] ${today}`,
-    '='.repeat(50),
+    '='.repeat(40),
     await formatRecords(records),
-    '='.repeat(50),
+    '='.repeat(40),
     `[本月预算] ${(await getMonthlyBudget()).toFixed(2)} 元`,
     `[本月已用] ${(await getMonthSpent()).toFixed(2)} 元`,
     `[本月剩余] ${(await getRemainingBudget()).toFixed(2)} 元`,
-    '='.repeat(50),
+    '='.repeat(40),
   ];
   return lines.join('\n');
 }
@@ -382,9 +382,9 @@ async function generateWeeklyBill() {
   }
 
   const lines = [
-    '='.repeat(50),
+    '='.repeat(40),
     `[每周账单] ${startStr} 至 ${endStr}`,
-    '='.repeat(50),
+    '='.repeat(40),
     '【明细】',
     await formatRecords(records),
     '',
@@ -392,7 +392,7 @@ async function generateWeeklyBill() {
   ];
   if (catLines.length) lines.push(...catLines);
   else lines.push('  本周无支出');
-  lines.push('', '【汇总】', `  本周总支出: ${total.toFixed(2)} 元`, `  本月预算: ${(await getMonthlyBudget()).toFixed(2)} 元`, `  本月剩余: ${(await getRemainingBudget()).toFixed(2)} 元`, '='.repeat(50));
+  lines.push('', '【汇总】', `  本周总支出: ${total.toFixed(2)} 元`, `  本月预算: ${(await getMonthlyBudget()).toFixed(2)} 元`, `  本月剩余: ${(await getRemainingBudget()).toFixed(2)} 元`, '='.repeat(40));
   return lines.join('\n');
 }
 
@@ -422,9 +422,9 @@ async function generateMonthlyBill(month) {
 
   const remaining = (await getMonthlyBudget()) - total;
   const lines = [
-    '='.repeat(50),
+    '='.repeat(40),
     `[月度账单] ${month}`,
-    '='.repeat(50),
+    '='.repeat(40),
     '【明细】',
     await formatRecords(monthRecords),
     '',
@@ -432,7 +432,7 @@ async function generateMonthlyBill(month) {
   ];
   if (catLines.length) lines.push(...catLines);
   else lines.push('  本月无支出');
-  lines.push('', '【汇总】', `  本月总支出: ${total.toFixed(2)} 元`, `  本月预算: ${(await getMonthlyBudget()).toFixed(2)} 元`, `  本月剩余: ${remaining.toFixed(2)} 元`, '='.repeat(50));
+  lines.push('', '【汇总】', `  本月总支出: ${total.toFixed(2)} 元`, `  本月预算: ${(await getMonthlyBudget()).toFixed(2)} 元`, `  本月剩余: ${remaining.toFixed(2)} 元`, '='.repeat(40));
   return lines.join('\n');
 }
 

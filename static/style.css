@@ -239,6 +239,7 @@ th {
 
 .bill-text {
   white-space: pre-wrap;
+  word-break: break-all;
   font-family: "Courier New", Courier, monospace;
   background: #f8f9fa;
   padding: 16px;

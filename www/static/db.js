@@ -1,6 +1,20 @@
 const DB_NAME = 'budget-mate-db';
 const DB_VERSION = 1;
 let useLocalStorage = false;
+let useMemory = false;
+const memoryStore = {};
+let memoryRecords = [];
+
+function _isLocalStorageAvailable() {
+  try {
+    const test = '__test__';
+    localStorage.setItem(test, test);
+    localStorage.removeItem(test);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -8,9 +22,14 @@ function openDB() {
       reject(new Error('indexedDB not available'));
       return;
     }
+    let settled = false;
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onerror = () => reject(req.error);
-    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => {
+      if (!settled) { settled = true; reject(req.error); }
+    };
+    req.onsuccess = () => {
+      if (!settled) { settled = true; resolve(req.result); }
+    };
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
       if (!db.objectStoreNames.contains('records')) {
@@ -21,21 +40,63 @@ function openDB() {
         db.createObjectStore('config', { keyPath: 'key' });
       }
     };
+    setTimeout(() => {
+      if (!settled) { settled = true; reject(new Error('IndexedDB open timeout')); }
+    }, 2000);
   });
 }
 
 async function _initStorage() {
-  if (useLocalStorage) return;
+  if (useLocalStorage || useMemory) return;
   try {
-    await openDB();
+    const db = await openDB();
+    const testKey = '__db_test__';
+    const testVal = Date.now();
+
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('config', 'readwrite');
+      const store = tx.objectStore('config');
+      const req = store.put({ key: testKey, value: testVal });
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+      setTimeout(() => reject(new Error('write timeout')), 2000);
+    });
+
+    const readBack = await new Promise((resolve, reject) => {
+      const tx = db.transaction('config', 'readonly');
+      const store = tx.objectStore('config');
+      const req = store.get(testKey);
+      req.onsuccess = () => resolve(req.result ? req.result.value : null);
+      req.onerror = () => reject(req.error);
+      setTimeout(() => reject(new Error('read timeout')), 2000);
+    });
+
+    if (readBack !== testVal) throw new Error('read/write mismatch');
+
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('config', 'readwrite');
+      const store = tx.objectStore('config');
+      const req = store.delete(testKey);
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+      setTimeout(() => reject(new Error('delete timeout')), 2000);
+    });
   } catch (e) {
-    console.warn('[db] IndexedDB failed, falling back to localStorage:', e.message);
-    useLocalStorage = true;
+    console.warn('[db] IndexedDB transaction test failed, falling back:', e.message);
+    if (_isLocalStorageAvailable()) {
+      useLocalStorage = true;
+    } else {
+      console.warn('[db] localStorage not available, using memory');
+      useMemory = true;
+    }
   }
 }
 
 async function getConfig(key, defaultValue) {
   await _initStorage();
+  if (useMemory) {
+    return key in memoryStore ? memoryStore[key] : defaultValue;
+  }
   if (useLocalStorage) {
     try {
       const raw = localStorage.getItem('bm_' + key);
@@ -56,6 +117,10 @@ async function getConfig(key, defaultValue) {
 
 async function setConfig(key, value) {
   await _initStorage();
+  if (useMemory) {
+    memoryStore[key] = value;
+    return;
+  }
   if (useLocalStorage) {
     localStorage.setItem('bm_' + key, JSON.stringify(value));
     return;
@@ -64,14 +129,15 @@ async function setConfig(key, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('config', 'readwrite');
     const store = tx.objectStore('config');
-    const req = store.put({ key, value });
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    store.put({ key, value });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
 async function dbGetAllRecords() {
   await _initStorage();
+  if (useMemory) return memoryRecords;
   if (useLocalStorage) {
     try {
       const raw = localStorage.getItem('bm_records');
@@ -92,6 +158,10 @@ async function dbGetAllRecords() {
 
 async function dbAddRecord(record) {
   await _initStorage();
+  if (useMemory) {
+    memoryRecords.push(record);
+    return;
+  }
   if (useLocalStorage) {
     const records = await dbGetAllRecords();
     records.push(record);
@@ -102,14 +172,18 @@ async function dbAddRecord(record) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('records', 'readwrite');
     const store = tx.objectStore('records');
-    const req = store.add(record);
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    store.add(record);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
 async function dbClearRecords() {
   await _initStorage();
+  if (useMemory) {
+    memoryRecords = [];
+    return;
+  }
   if (useLocalStorage) {
     localStorage.removeItem('bm_records');
     return;
@@ -118,9 +192,31 @@ async function dbClearRecords() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('records', 'readwrite');
     const store = tx.objectStore('records');
-    const req = store.clear();
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    store.clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDeleteRecord(id) {
+  await _initStorage();
+  if (useMemory) {
+    memoryRecords = memoryRecords.filter(r => r.id !== id);
+    return;
+  }
+  if (useLocalStorage) {
+    const records = await dbGetAllRecords();
+    const filtered = records.filter(r => r.id !== id);
+    localStorage.setItem('bm_records', JSON.stringify(filtered));
+    return;
+  }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('records', 'readwrite');
+    const store = tx.objectStore('records');
+    store.delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -137,7 +233,9 @@ async function dbExportData() {
 async function dbImportData(data) {
   if (data.records && Array.isArray(data.records)) {
     await dbClearRecords();
-    if (useLocalStorage) {
+    if (useMemory) {
+      memoryRecords = data.records.slice();
+    } else if (useLocalStorage) {
       localStorage.setItem('bm_records', JSON.stringify(data.records));
     } else {
       const db = await openDB();

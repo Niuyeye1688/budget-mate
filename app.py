@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import calendar
 import os
 import sys
@@ -30,6 +30,11 @@ check_monthly_reset()
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/sw.js")
+def sw():
+    return send_from_directory("static", "sw.js", mimetype="application/javascript")
 
 
 @app.route("/api/config", methods=["GET"])
@@ -163,6 +168,14 @@ def api_records():
 def api_clear_records():
     store = load_data()
     store["records"] = []
+    save_data(store)
+    return jsonify({"success": True})
+
+
+@app.route("/api/records/<int:record_id>", methods=["DELETE"])
+def api_delete_record(record_id):
+    store = load_data()
+    store["records"] = [r for r in store["records"] if r.get("id") != record_id]
     save_data(store)
     return jsonify({"success": True})
 

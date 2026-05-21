@@ -7,6 +7,9 @@ if sys.platform == "win32" and getattr(sys, "frozen", False):
 import threading
 import time
 import socket
+import os
+import ssl
+import urllib.request
 import webview
 from app import app
 

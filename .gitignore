@@ -37,3 +37,10 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Node.js
+node_modules/
+
+# SSL certs
+cert.pem
+key.pem

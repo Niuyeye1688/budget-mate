@@ -7,6 +7,8 @@ a = Analysis(
     datas=[
         ('templates', 'templates'),
         ('static', 'static'),
+        ('cert.pem', '.'),
+        ('key.pem', '.'),
     ],
     hiddenimports=[
         'webview',

@@ -4,13 +4,48 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>经费审批与记账助手</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="stylesheet" href="static/style.css">
   <meta name="theme-color" content="#2c3e50">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <style>
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000; opacity: 0; pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active { opacity: 1; pointer-events: auto; }
+    .modal-box {
+      background: #fff; border-radius: 12px;
+      width: 90%; max-width: 320px; padding: 24px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+      transform: scale(0.95); transition: transform 0.2s ease;
+    }
+    .modal-overlay.active .modal-box { transform: scale(1); }
+    .modal-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 8px; color: #2c3e50; }
+    .modal-body { font-size: 0.95rem; color: #555; margin-bottom: 20px; line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+    .modal-btn {
+      padding: 8px 18px; border-radius: 6px; border: none;
+      font-size: 0.9rem; cursor: pointer; transition: background 0.15s;
+    }
+    .modal-btn-primary { background: #2980b9; color: #fff; }
+    .modal-btn-primary:active { background: #1f6691; }
+    .modal-btn-secondary { background: #e0e0e0; color: #333; }
+    .modal-btn-secondary:active { background: #c0c0c0; }
+  </style>
 </head>
 <body>
+  <div id="custom-modal" class="modal-overlay">
+    <div class="modal-box">
+      <div class="modal-title" id="modal-title">提示</div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="modal-cancel">取消</button>
+        <button class="modal-btn modal-btn-primary" id="modal-ok">确定</button>
+      </div>
+    </div>
+  </div>
   <div class="container">
     <header>
       <h1>经费审批与记账助手</h1>
@@ -226,34 +261,61 @@
           <input type="file" id="import-file" accept=".json" style="position:absolute;left:0;top:0;opacity:0;width:100%;height:100%;cursor:pointer;" onchange="importDataFile(event)">
         </label>
       </div>
+      <div id="app-version" style="margin-top:24px;text-align:center;color:#999;font-size:0.8rem;"></div>
     </div>
   </div>
 
-  <script src="/static/db.js"></script>
-  <script src="/static/app-logic.js"></script>
+  <script src="static/db.js"></script>
+  <script src="static/app-logic.js"></script>
   <script>
+    const APP_VERSION = '1.3.1';
     let backendChecked = false;
-    let useBackend = true;
+    let useBackend = false;
+
+    function showAlert(msg, title = '提示') {
+      return new Promise(resolve => {
+        const modal = document.getElementById('custom-modal');
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-body').textContent = msg;
+        document.getElementById('modal-cancel').style.display = 'none';
+        const okBtn = document.getElementById('modal-ok');
+        okBtn.onclick = () => { modal.classList.remove('active'); resolve(); };
+        modal.classList.add('active');
+      });
+    }
+
+    function showConfirm(msg, title = '确认') {
+      return new Promise(resolve => {
+        const modal = document.getElementById('custom-modal');
+        document.getElementById('modal-title').textContent = title;
+        document.getElementById('modal-body').textContent = msg;
+        document.getElementById('modal-cancel').style.display = '';
+        const okBtn = document.getElementById('modal-ok');
+        const cancelBtn = document.getElementById('modal-cancel');
+        okBtn.onclick = () => { modal.classList.remove('active'); resolve(true); };
+        cancelBtn.onclick = () => { modal.classList.remove('active'); resolve(false); };
+        modal.classList.add('active');
+      });
+    }
 
     async function detectBackend() {
       if (backendChecked) return;
-      try {
-        await fetch('/api/budget', { method: 'HEAD' });
-        useBackend = true;
-      } catch (e) {
-        useBackend = false;
-        await checkMonthlyReset();
-      }
+      await checkMonthlyReset();
       backendChecked = true;
     }
 
     async function api(url, opts) {
       await detectBackend();
+      console.log('[api] url =', url, 'useBackend =', useBackend);
       if (useBackend) {
         try {
           const res = await fetch(url, opts);
-          return await res.json();
+          if (!res.ok) throw new Error('Backend returned ' + res.status);
+          const data = await res.json();
+          console.log('[api] backend response:', data);
+          return data;
         } catch (e) {
+          console.log('[api] backend error:', e.message);
           useBackend = false;
           backendChecked = false;
         }
@@ -365,10 +427,10 @@
       updateTripTotal();
     }
 
-    function removeTripRow(btn) {
+    async function removeTripRow(btn) {
       const container = document.getElementById('trip-items');
       if (container.children.length <= 1) {
-        alert('至少保留一项');
+        await showAlert('至少保留一项');
         return;
       }
       btn.parentElement.remove();
@@ -399,7 +461,7 @@
       });
 
       if (items.length === 0) {
-        alert('请至少填写一项支出');
+        await showAlert('请至少填写一项支出');
         return;
       }
 
@@ -557,10 +619,10 @@
       container.appendChild(row);
     }
 
-    function removeBatchRow(btn) {
+    async function removeBatchRow(btn) {
       const container = document.getElementById('batch-items');
       if (container.children.length <= 1) {
-        alert('至少保留一项');
+        await showAlert('至少保留一项');
         return;
       }
       btn.parentElement.remove();
@@ -568,64 +630,72 @@
 
     async function submitBatchApproval(e) {
       e.preventDefault();
-      const rows = document.querySelectorAll('.batch-row');
-      const items = [];
-      rows.forEach(row => {
-        const amount = parseFloat(row.querySelector('.batch-amount').value);
-        const desc = row.querySelector('.batch-desc').value;
-        if (!isNaN(amount) && desc.trim()) {
-          items.push({ amount, description: desc.trim() });
+      try {
+        const rows = document.querySelectorAll('.batch-row');
+        const items = [];
+        rows.forEach(row => {
+          const amount = parseFloat(row.querySelector('.batch-amount').value);
+          const desc = row.querySelector('.batch-desc').value;
+          if (!isNaN(amount) && desc.trim()) {
+            items.push({ amount, description: desc.trim() });
+          }
+        });
+
+        if (items.length === 0) {
+          await showAlert('请至少填写一项支出');
+          return;
         }
-      });
 
-      if (items.length === 0) {
-        alert('请至少填写一项支出');
-        return;
-      }
+        console.log('[submitBatchApproval] items =', JSON.stringify(items));
+        const result = await api('/api/approve/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items })
+        });
+        console.log('[submitBatchApproval] result =', JSON.stringify(result));
 
-      const result = await api('/api/approve/batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items })
-      });
+        const box = document.getElementById('approve-result');
+        box.className = 'result-box show ' + (result && result.approved ? 'approved' : 'rejected');
 
-      const box = document.getElementById('approve-result');
-      box.className = 'result-box show ' + (result.approved ? 'approved' : 'rejected');
+        let itemsHtml = '';
+        if (result && result.items && result.items.length > 0) {
+          itemsHtml = '<br><br>明细：<br>' + result.items.map(i =>
+            `&nbsp;&nbsp;${i.description} ${i.amount.toFixed(2)}元 [${i.category}]`
+          ).join('<br>');
+        }
 
-      let itemsHtml = '';
-      if (result.items && result.items.length > 0) {
-        itemsHtml = '<br><br>明细：<br>' + result.items.map(i =>
-          `&nbsp;&nbsp;${i.description} ${i.amount.toFixed(2)}元 [${i.category}]`
-        ).join('<br>');
-      }
+        const totalStr = result && result.total ? result.total.toFixed(2) : items.reduce((s, i) => s + i.amount, 0).toFixed(2);
+        const reasonStr = result && result.reason ? result.reason : '无响应';
+        box.innerHTML = `<strong>${result && result.approved ? '批准' : '拒绝'}</strong>（本次合计 ${totalStr} 元）<br>
+          理由：${reasonStr}${itemsHtml}`;
 
-      box.innerHTML = `<strong>${result.approved ? '批准' : '拒绝'}</strong>（本次合计 ${result.total ? result.total.toFixed(2) : items.reduce((s, i) => s + i.amount, 0).toFixed(2)} 元）<br>
-        理由：${result.reason}${itemsHtml}`;
-
-      // Reset form to single row
-      document.getElementById('batch-items').innerHTML = `
-        <div class="batch-row" data-index="0">
-          <div class="form-group">
-            <label>金额（元）</label>
-            <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
+        // Reset form to single row
+        document.getElementById('batch-items').innerHTML = `
+          <div class="batch-row" data-index="0">
+            <div class="form-group">
+              <label>金额（元）</label>
+              <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
+            </div>
+            <div class="form-group">
+              <label>用途描述</label>
+              <input type="text" class="batch-desc" required placeholder="例如：午饭">
+            </div>
           </div>
-          <div class="form-group">
-            <label>用途描述</label>
-            <input type="text" class="batch-desc" required placeholder="例如：午饭">
-          </div>
-        </div>
-      `;
+        `;
+      } catch (err) {
+        await showAlert('审批失败：' + err.message);
+      }
     }
 
     async function clearRecords() {
-      if (!confirm('确定要清空所有记录吗？此操作不可恢复。')) return;
+      if (!await showConfirm('确定要清空所有记录吗？此操作不可恢复。')) return;
       await api('/api/records', { method: 'DELETE' });
       loadRecords();
       loadDashboard();
     }
 
     async function deleteSingleRecord(id) {
-      if (!confirm('确定删除这条记录吗？')) return;
+      if (!await showConfirm('确定删除这条记录吗？')) return;
       await api('/api/records/' + id, { method: 'DELETE' });
       loadRecords();
       loadApprovals();
@@ -707,14 +777,20 @@
 
     async function setBudget(e) {
       e.preventDefault();
-      const amount = parseFloat(document.getElementById('set-budget-amount').value);
-      await api('/api/budget', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount })
-      });
-      alert('月预算已保存');
-      document.getElementById('set-budget-amount').value = '';
+      try {
+        const amount = parseFloat(document.getElementById('set-budget-amount').value);
+        console.log('[setBudget] saving amount =', amount);
+        const result = await api('/api/budget', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount })
+        });
+        console.log('[setBudget] result =', result);
+        await showAlert('月预算已保存');
+        document.getElementById('set-budget-amount').value = '';
+      } catch (err) {
+        await showAlert('保存失败：' + err.message);
+      }
     }
 
     async function setLimit(e) {
@@ -726,7 +802,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, amount })
       });
-      alert(`【${category}】上限已设置为 ${amount.toFixed(2)} 元`);
+      await showAlert(`【${category}】上限已设置为 ${amount.toFixed(2)} 元`);
       document.getElementById('limit-amount').value = '';
     }
 
@@ -756,7 +832,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      alert('AI 配置已保存');
+      await showAlert('AI 配置已保存');
       document.getElementById('ai-api-key').value = '';
       loadConfig();
     }
@@ -783,84 +859,20 @@
       if (!file) return;
       try {
         await importFromJSON(file);
-        alert('数据导入成功');
+        await showAlert('数据导入成功');
         loadDashboard();
         loadRecords();
         loadConfig();
       } catch (err) {
-        alert('导入失败：' + err.message);
+        await showAlert('导入失败：' + err.message);
       }
       e.target.value = '';
-    }
-
-    const swStatus = document.getElementById('sw-status');
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js?v=2')
-        .then(reg => {
-          swStatus.textContent = 'SW: 已注册 ' + reg.scope;
-          swStatus.style.background = '#27ae60';
-          if (reg.waiting) {
-            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          }
-          reg.addEventListener('updatefound', () => {
-            const newWorker = reg.installing;
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  newWorker.postMessage({ type: 'SKIP_WAITING' });
-                }
-              });
-            }
-          });
-        })
-        .catch(err => {
-          swStatus.textContent = 'SW: 失败 - ' + err.message;
-          swStatus.style.background = '#e74c3c';
-        });
-    } else {
-      swStatus.textContent = 'SW: 浏览器不支持';
-      swStatus.style.background = '#f39c12';
     }
 
     loadDashboard();
     loadConfig();
     loadMealSuggestion();
-  </script>
-  <div id="sw-status" style="position:fixed;bottom:10px;right:10px;padding:8px 12px;border-radius:6px;font-size:12px;z-index:9999;background:#95a5a6;color:white;max-width:80%;word-break:break-all;">SW: 检测中...</div>
-  <script>
-    window.addEventListener('DOMContentLoaded', function() {
-      const swStatus = document.getElementById('sw-status');
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js?v=2')
-          .then(function(reg) {
-            swStatus.textContent = 'SW: 已注册 ' + reg.scope;
-            swStatus.style.background = '#27ae60';
-            if (reg.waiting) {
-              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
-            reg.addEventListener('updatefound', function() {
-              var newWorker = reg.installing;
-              if (newWorker) {
-                newWorker.addEventListener('statechange', function() {
-                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                  }
-                });
-              }
-            });
-          })
-          .catch(function(err) {
-            swStatus.textContent = 'SW: 失败 - ' + err.message;
-            swStatus.style.background = '#e74c3c';
-          });
-      } else {
-        var ua = navigator.userAgent || 'unknown';
-        var chromeVer = ua.match(/Chrome\/(\d+)/);
-        var ver = chromeVer ? chromeVer[1] : '?';
-        swStatus.innerHTML = 'SW: 不可用<br>Chrome v' + ver + '<br>协议:' + location.protocol + '<br>UA:' + ua.substring(0, 40);
-        swStatus.style.background = '#f39c12';
-      }
-    });
+    document.getElementById('app-version').textContent = 'v' + APP_VERSION;
   </script>
 </body>
 </html>

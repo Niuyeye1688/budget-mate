@@ -102,7 +102,7 @@ async function deleteRecord(id) {
 function detectCategory(description) {
   const desc = description.toLowerCase();
   const keywords = {
-    '餐饮': ['饭', '餐', '吃', '餐厅', '食堂', '外卖', '火锅', '烧烤', '咖啡', '奶茶', '菜', '请客', '聚餐', '酒', '食'],
+    '餐饮': ['饭', '餐', '吃', '餐厅', '食堂', '外卖', '火锅', '烧烤', '咖啡', '奶茶', '菜', '请客', '聚餐', '酒', '食', '甜筒', '冰淇淋', '雪糕', '冰棍', '冰棒', '零食', '薯片', '饼干', '巧克力', '糖果', '面包', '蛋糕', '甜点', '甜品', '汉堡', '披萨', '炸鸡', '薯条', '小吃', '饮料', '可乐', '果汁', '矿泉水', '牛奶', '酸奶', '豆浆', '包子', '饺子', '面条', '米线', '河粉', '寿司', '沙拉', '粥', '油条', '煎饼', '烤肠'],
     '交通': ['车', '地铁', '公交', '出租', '滴滴', '打车', '加油', '油费', '停车', '高铁', '火车', '飞机', '票', '路费', '通勤'],
     '购物': ['买', '购物', '衣服', '鞋', '包', '化妆品', '超市', '便利店', '淘宝', '京东', '拼多多', '用品', '东西', '设备', '电器'],
     '娱乐': ['游戏', '电影', '唱', '玩', '旅游', '旅行', '门票', '会员', '视频', '音乐', '球', '健身', '娱乐', '休闲'],
@@ -135,13 +135,22 @@ async function checkRules(amount, category) {
     approved = false;
   }
 
-  if (catLimit > 0 && catSpent + amount > catLimit) {
-    reasons.push(`【${category}】分类本月已用 ${catSpent.toFixed(2)} 元，上限为 ${catLimit.toFixed(2)} 元`);
+  // 分类上限不能超过月度总预算
+  const effectiveCatLimit = catLimit > 0 ? Math.min(catLimit, monthBudget) : 0;
+  if (effectiveCatLimit > 0 && catSpent + amount > effectiveCatLimit) {
+    reasons.push(`【${category}】分类本月已用 ${catSpent.toFixed(2)} 元，上限为 ${effectiveCatLimit.toFixed(2)} 元`);
     approved = false;
   }
 
-  if (catLimit > 0 && catSpentRecent + amount > catLimit) {
-    reasons.push(`【${category}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，加上这笔将超上限 ${catLimit.toFixed(2)} 元`);
+  if (effectiveCatLimit > 0 && catSpentRecent + amount > effectiveCatLimit) {
+    reasons.push(`【${category}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，加上这笔将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
+    approved = false;
+  }
+
+  // 短时高频限制：1小时内同分类累计不超过月度总预算的 10%
+  const shortTermLimit = monthBudget * 0.1;
+  if (catSpentRecent + amount > shortTermLimit) {
+    reasons.push(`【${category}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，加上这笔将超短时限额 ${shortTermLimit.toFixed(2)} 元`);
     approved = false;
   }
 
@@ -161,6 +170,13 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
   const monthSpent = await getMonthSpent();
   const remaining = monthBudget - monthSpent;
   const limits = await getCategoryLimits();
+
+  // 计算剩余天数和日均预算
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const remainingDays = daysInMonth - today.getDate() + 1;
+  const dailyBudget = remainingDays > 0 ? remaining / remainingDays : 0;
+  const currentDate = `${today.getMonth() + 1}月${today.getDate()}日`;
 
   const catInfo = [];
   for (const [cat, limit] of Object.entries(limits)) {
@@ -185,7 +201,7 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
 
 语气要求：
 - 如果批准：语气温柔亲切，像贴心闺蜜/兄弟一样，给用户满满的鼓励和认可
-- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉\n\n用户当前财务状况：\n- 月预算：${monthBudget.toFixed(0)}元\n- 本月已用：${monthSpent.toFixed(0)}元\n- 本月剩余：${remaining.toFixed(0)}元\n- 各分类使用情况：${catText}\n\n用户申请支出：${amount.toFixed(0)}元\n用途描述：${description}\n${recentContext}\n判断标准（严格执行）：\n1. 余额不足或分类将超支 → 必须拒绝\n2. 餐饮类：正常一餐 50-150 元，超过 200 元属于高消费，超过 300 元除非特殊场合（如请客、聚餐）否则拒绝。如果最近30分钟内有其他餐饮消费，应合并视为"本次一餐"判断\n3. 交通类：日常通勤单次不应超过 100 元，打车非急事应拒绝。如果最近30分钟内有其他交通消费，应合并视为"本次出行"判断\n4. 购物类：非必需品优先拒绝，奢侈品直接拒绝\n5. 娱乐类：每月不超过 2-3 次，单次不超过预算 10%\n6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝\n\n请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。\n输出严格JSON，不要有任何其他文字：\n{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
+- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉\n\n用户当前财务状况：\n- 月预算：${monthBudget.toFixed(0)}元\n- 本月已用：${monthSpent.toFixed(0)}元\n- 本月剩余：${remaining.toFixed(0)}元\n- 今天是${currentDate}，本月还剩 ${remainingDays} 天\n- 日均可用预算：${dailyBudget.toFixed(0)}元（目标：月底之前预算不为零，保证每天正常吃饭）\n- 各分类使用情况：${catText}\n\n用户申请支出：${amount.toFixed(0)}元\n用途描述：${description}\n${recentContext}\n判断标准：\n1. 核心目标：让预算撑到月底不为零。日均可用预算 ${dailyBudget.toFixed(0)} 元是最重要的参考红线\n2. 餐饮类：正常一餐不应明显超过日均预算，超出需有正当理由（如聚餐、请客）。如果最近1小时内有其他餐饮消费，合并视为"本次一餐"判断\n3. 交通类：日常通勤单次不应超过日均预算的2倍，打车非急事应拒绝。如果最近1小时内有其他交通消费，合并视为"本次出行"判断\n4. 购物类：非必需品优先拒绝，奢侈品直接拒绝\n5. 娱乐类：每月不超过 2-3 次，单次不超过日均预算的3倍\n6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝\n\n请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。\n输出严格JSON，不要有任何其他文字：\n{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
 
   try {
     const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
@@ -211,21 +227,41 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
   }
 }
 
+async function aiClassify(description) {
+  const config = await getConfig('api_config', {});
+  const apiKey = config.api_key || '';
+  const baseUrl = config.base_url || 'https://api.deepseek.com';
+  const model = config.model || 'deepseek-chat';
+
+  if (!config.enabled || !apiKey) return null;
+
+  const prompt = `请判断以下消费描述属于哪个分类（餐饮/交通/购物/娱乐/其他），只输出分类名，不要其他文字。\n消费描述：${description}`;
+
+  try {
+    const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一个消费分类助手，只输出分类名。' }, { role: 'user', content: prompt }], temperature: 0.1 }),
+    });
+    const result = await resp.json();
+    let content = result.choices[0].message.content.trim();
+    content = content.replace(/^["']|["']$/g, '').replace(/[【】]/g, '').trim();
+    const validCats = ['餐饮', '交通', '购物', '娱乐', '其他'];
+    if (validCats.includes(content)) return content;
+    return null;
+  } catch (e) {
+    console.error('AI classify error:', e);
+    return null;
+  }
+}
+
 // ========== Judge Expense ==========
 async function judgeExpense(amount, description) {
   const config = await getConfig('api_config', {});
-  let aiResult = null;
   let category = detectCategory(description);
 
   const recentItems = await getRecentRecords(category, 30);
   const recentTotal = recentItems.reduce((s, i) => s + i.amount, 0);
-
-  if (config.enabled && config.api_key) {
-    aiResult = await aiJudge(amount, description, recentItems, recentTotal);
-    if (aiResult) category = aiResult.category || category;
-  }
-
-  const { approved: ruleApproved, reasons: ruleReasons } = await checkRules(amount, category);
 
   let tripPrefix = '';
   if (recentItems.length) {
@@ -233,29 +269,22 @@ async function judgeExpense(amount, description) {
     tripPrefix = `本次外出【${category}】合计 ${tripTotal.toFixed(2)} 元（含之前已审批的 ${recentTotal.toFixed(2)} 元）。`;
   }
 
-  if (aiResult) {
-    if (!ruleApproved) {
-      const allReasons = [];
-      if (tripPrefix) allReasons.push(tripPrefix);
-      if (aiResult.reason) allReasons.push(`AI判断：${aiResult.reason}`);
-      allReasons.push(...ruleReasons);
-      return { approved: false, category, reason: allReasons.join('；') };
-    } else {
+  // AI 模式下直接让 AI 全权判断
+  if (config.enabled && config.api_key) {
+    const aiResult = await aiJudge(amount, description, recentItems, recentTotal);
+    if (aiResult) {
+      category = aiResult.category || category;
       let reason = aiResult.reason || 'AI判断通过';
       if (tripPrefix) reason = tripPrefix + reason;
       return { approved: aiResult.approved, category, reason };
     }
-  } else {
-    if (amount > 1000 && ruleApproved) {
-      ruleReasons.push(`单笔 ${amount.toFixed(2)} 元属于大额支出，请慎重考虑（已批准）`);
-    }
-    if (ruleApproved && !ruleReasons.length) {
-      ruleReasons.push(`余额充足，分类【${category}】未超支，可以支出。`);
-    }
-    let reason = ruleReasons.join('；');
-    if (tripPrefix) reason = tripPrefix + reason;
-    return { approved: ruleApproved, category, reason };
   }
+
+  // Rule-based fallback
+  const { approved: ruleApproved, reasons: ruleReasons } = await checkRules(amount, category);
+  let reason = ruleReasons.join('；');
+  if (tripPrefix) reason = tripPrefix + reason;
+  return { approved: ruleApproved, category, reason };
 }
 
 // ========== Judge Batch ==========
@@ -266,6 +295,7 @@ async function judgeBatchExpense(items) {
 
   const totalAmount = items.reduce((s, i) => s + i.amount, 0);
   const combinedDesc = items.map(i => `${i.description} (${i.amount.toFixed(0)}元)`).join('；');
+  const config = await getConfig('api_config', {});
 
   const itemResults = items.map(item => ({
     amount: item.amount,
@@ -273,6 +303,29 @@ async function judgeBatchExpense(items) {
     category: detectCategory(item.description),
   }));
 
+  // AI 模式下让关键词未识别的 item 单独分类
+  if (config.enabled && config.api_key) {
+    await Promise.all(itemResults.map(async (item) => {
+      if (item.category === '其他') {
+        const aiCat = await aiClassify(item.description);
+        if (aiCat) item.category = aiCat;
+      }
+    }));
+  }
+
+  // AI 模式下直接让 AI 全权判断
+  if (config.enabled && config.api_key) {
+    try {
+      const aiResult = await aiJudge(totalAmount, `本次外出消费：${combinedDesc}`);
+      if (aiResult) {
+        return { approved: aiResult.approved, reason: aiResult.reason || 'AI判断通过', total: totalAmount, items: itemResults };
+      }
+    } catch (e) {
+      console.error('AI batch judge error:', e);
+    }
+  }
+
+  // Rule-based fallback
   const limits = await getCategoryLimits();
   const monthBudget = await getMonthlyBudget();
   const monthSpent = await getMonthSpent();
@@ -297,37 +350,28 @@ async function judgeBatchExpense(items) {
     const catLimit = limits[cat] || 0;
     const catSpent = await getCategorySpent(cat);
     const catSpentRecent = await getCategorySpentRecent(cat, 1);
-    if (catLimit > 0 && catSpent + batchAmount > catLimit) {
-      ruleReasons.push(`【${cat}】分类本月已用 ${catSpent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${catLimit.toFixed(2)} 元`);
+
+    const effectiveCatLimit = catLimit > 0 ? Math.min(catLimit, monthBudget) : 0;
+    if (effectiveCatLimit > 0 && catSpent + batchAmount > effectiveCatLimit) {
+      ruleReasons.push(`【${cat}】分类本月已用 ${catSpent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
       ruleApproved = false;
     }
-    if (catLimit > 0 && catSpentRecent + batchAmount > catLimit) {
-      ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${catLimit.toFixed(2)} 元`);
+    if (effectiveCatLimit > 0 && catSpentRecent + batchAmount > effectiveCatLimit) {
+      ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
+      ruleApproved = false;
+    }
+
+    const shortTermLimit = monthBudget * 0.15;
+    if (catSpentRecent + batchAmount > shortTermLimit) {
+      ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超短时限额 ${shortTermLimit.toFixed(2)} 元`);
       ruleApproved = false;
     }
   }
 
-  const config = await getConfig('api_config', {});
-  let aiResult = null;
-  if (config.enabled && config.api_key) {
-    aiResult = await aiJudge(totalAmount, `本次外出消费：${combinedDesc}`);
+  if (ruleApproved && !ruleReasons.length) {
+    ruleReasons.push(`本次消费合计 ${totalAmount.toFixed(2)} 元，余额充足，可以支出。`);
   }
-
-  if (aiResult) {
-    if (!ruleApproved) {
-      const allReasons = [];
-      if (aiResult.reason) allReasons.push(`AI判断：${aiResult.reason}`);
-      allReasons.push(...ruleReasons);
-      return { approved: false, reason: allReasons.join('；'), total: totalAmount, items: itemResults };
-    } else {
-      return { approved: aiResult.approved, reason: aiResult.reason || 'AI判断通过', total: totalAmount, items: itemResults };
-    }
-  } else {
-    if (ruleApproved && !ruleReasons.length) {
-      ruleReasons.push(`本次消费合计 ${totalAmount.toFixed(2)} 元，余额充足，可以支出。`);
-    }
-    return { approved: ruleApproved, reason: ruleReasons.join('；'), total: totalAmount, items: itemResults };
-  }
+  return { approved: ruleApproved, reason: ruleReasons.join('；'), total: totalAmount, items: itemResults };
 }
 
 // ========== Bills ==========

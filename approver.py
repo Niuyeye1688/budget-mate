@@ -1,5 +1,7 @@
+import calendar
 import json
 import urllib.request
+from datetime import datetime
 from storage import load_data, get_current_month
 from ledger import get_month_spent, get_category_spent, get_category_spent_recent, get_recent_records
 
@@ -7,7 +9,7 @@ from ledger import get_month_spent, get_category_spent, get_category_spent_recen
 def detect_category(description):
     desc = description.lower()
     keywords = {
-        "餐饮": ["饭", "餐", "吃", "餐厅", "食堂", "外卖", "火锅", "烧烤", "咖啡", "奶茶", "菜", "请客", "聚餐", "酒", "食"],
+        "餐饮": ["饭", "餐", "吃", "餐厅", "食堂", "外卖", "火锅", "烧烤", "咖啡", "奶茶", "菜", "请客", "聚餐", "酒", "食", "甜筒", "冰淇淋", "雪糕", "冰棍", "冰棒", "零食", "薯片", "饼干", "巧克力", "糖果", "面包", "蛋糕", "甜点", "甜品", "汉堡", "披萨", "炸鸡", "薯条", "小吃", "饮料", "可乐", "果汁", "矿泉水", "牛奶", "酸奶", "豆浆", "包子", "饺子", "面条", "米线", "河粉", "寿司", "沙拉", "粥", "油条", "煎饼", "烤肠"],
         "交通": ["车", "地铁", "公交", "出租", "滴滴", "打车", "加油", "油费", "停车", "高铁", "火车", "飞机", "票", "路费", "通勤"],
         "购物": ["买", "购物", "衣服", "鞋", "包", "化妆品", "超市", "便利店", "淘宝", "京东", "拼多多", "用品", "东西", "设备", "电器"],
         "娱乐": ["游戏", "电影", "唱", "玩", "旅游", "旅行", "门票", "会员", "视频", "音乐", "球", "健身", "娱乐", "休闲"],
@@ -39,12 +41,20 @@ def _check_rules(amount, category):
         reasons.append(f"本月已用 {month_spent:.2f} 元，加上这笔 {amount:.2f} 元将超出总预算 {month_budget:.2f} 元")
         approved = False
 
-    if cat_limit > 0 and cat_spent + amount > cat_limit:
-        reasons.append(f"【{category}】分类本月已用 {cat_spent:.2f} 元，上限为 {cat_limit:.2f} 元")
+    # 分类上限不能超过月度总预算
+    effective_cat_limit = min(cat_limit, month_budget) if cat_limit > 0 else 0
+    if effective_cat_limit > 0 and cat_spent + amount > effective_cat_limit:
+        reasons.append(f"【{category}】分类本月已用 {cat_spent:.2f} 元，上限为 {effective_cat_limit:.2f} 元")
         approved = False
 
-    if cat_limit > 0 and cat_spent_recent + amount > cat_limit:
-        reasons.append(f"【{category}】最近1小时内已用 {cat_spent_recent:.2f} 元，加上这笔将超上限 {cat_limit:.2f} 元")
+    if effective_cat_limit > 0 and cat_spent_recent + amount > effective_cat_limit:
+        reasons.append(f"【{category}】最近1小时内已用 {cat_spent_recent:.2f} 元，加上这笔将超上限 {effective_cat_limit:.2f} 元")
+        approved = False
+
+    # 短时高频限制：1小时内同分类累计不超过月度总预算的 10%
+    short_term_limit = month_budget * 0.05
+    if cat_spent_recent + amount > short_term_limit:
+        reasons.append(f"【{category}】最近1小时内已用 {cat_spent_recent:.2f} 元，加上这笔将超短时限额 {short_term_limit:.2f} 元")
         approved = False
 
     return approved, reasons, category
@@ -60,6 +70,13 @@ def ai_judge(amount, description, recent_items=None, recent_total=0):
     month_budget = data.get("monthly_budget", 0)
     month_spent = get_month_spent()
     remaining = month_budget - month_spent
+
+    # 计算剩余天数和日均预算
+    today = datetime.now()
+    days_in_month = calendar.monthrange(today.year, today.month)[1]
+    remaining_days = days_in_month - today.day + 1
+    daily_budget = remaining / remaining_days if remaining_days > 0 else 0
+    current_date = today.strftime("%m月%d日")
 
     cat_info = []
     for cat, limit in data.get("category_limits", {}).items():
@@ -91,17 +108,19 @@ def ai_judge(amount, description, recent_items=None, recent_total=0):
 - 月预算：{month_budget:.0f}元
 - 本月已用：{month_spent:.0f}元
 - 本月剩余：{remaining:.0f}元
+- 今天是{current_date}，本月还剩 {remaining_days} 天
+- 日均可用预算：{daily_budget:.0f}元（目标：月底之前预算不为零，保证每天正常吃饭）
 - 各分类使用情况：{cat_text}
 
 用户申请支出：{amount:.0f}元
 用途描述：{description}
 {recent_context}
-判断标准（严格执行）：
-1. 余额不足或分类将超支 → 必须拒绝
-2. 餐饮类：正常一餐 50-150 元，超过 200 元属于高消费，超过 300 元除非特殊场合（如请客、聚餐）否则拒绝。如果最近30分钟内有其他餐饮消费，应合并视为"本次一餐"判断
-3. 交通类：日常通勤单次不应超过 100 元，打车非急事应拒绝。如果最近30分钟内有其他交通消费，应合并视为"本次出行"判断
+判断标准：
+1. 核心目标：让预算撑到月底不为零。日均可用预算 {daily_budget:.0f} 元是最重要的参考红线
+2. 餐饮类：正常一餐不应明显超过日均预算，超出需有正当理由（如聚餐、请客）。如果最近1小时内有其他餐饮消费，合并视为"本次一餐"判断
+3. 交通类：日常通勤单次不应超过日均预算的2倍，打车非急事应拒绝。如果最近1小时内有其他交通消费，合并视为"本次出行"判断
 4. 购物类：非必需品优先拒绝，奢侈品直接拒绝
-5. 娱乐类：每月不超过 2-3 次，单次不超过预算 10%
+5. 娱乐类：每月不超过 2-3 次，单次不超过日均预算的3倍
 6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝
 
 请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。
@@ -149,50 +168,70 @@ def ai_judge(amount, description, recent_items=None, recent_total=0):
         }
 
 
+def ai_classify(description):
+    data = load_data()
+    config = data.get("api_config", {})
+    api_key = config.get("api_key", "")
+    base_url = config.get("base_url", "https://api.deepseek.com")
+    model = config.get("model", "deepseek-chat")
+
+    if not config.get("enabled") or not api_key:
+        return None
+
+    prompt = f"""请判断以下消费描述属于哪个分类（餐饮/交通/购物/娱乐/其他），只输出分类名，不要其他文字。\n消费描述：{description}"""
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是一个消费分类助手，只输出分类名。"},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.1,
+    }
+
+    req = urllib.request.Request(
+        f"{base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            content = result["choices"][0]["message"]["content"].strip()
+            content = content.strip('"').strip("'").strip("【】").strip()
+            valid_cats = ["餐饮", "交通", "购物", "娱乐", "其他"]
+            if content in valid_cats:
+                return content
+            return None
+    except Exception:
+        return None
+
+
 def judge_expense(amount, description):
     data = load_data()
     config = data.get("api_config", {})
 
-    ai_result = None
     category = detect_category(description)
 
     # 获取最近30分钟同分类已批准消费（用于智能外出合并）
     recent_items = get_recent_records(category, minutes=30)
     recent_total = sum(item["amount"] for item in recent_items)
 
-    # Try AI judgment if enabled
-    if config.get("enabled") and config.get("api_key"):
-        try:
-            ai_result = ai_judge(amount, description, recent_items=recent_items, recent_total=recent_total)
-            category = ai_result.get("category", category)
-        except Exception:
-            pass  # AI failed, fall through to rule-based only
-
-    # Rule-based guardrails (always enforce budget limits + time window)
-    rule_approved, rule_reasons, category = _check_rules(amount, category)
-
-    # Build final result
     trip_prefix = ""
     if recent_items:
         trip_total = recent_total + amount
         trip_prefix = f"本次外出【{category}】合计 {trip_total:.2f} 元（含之前已审批的 {recent_total:.2f} 元）。"
 
-    if ai_result is not None:
-        # AI gave an opinion, but rules override
-        if not rule_approved:
-            all_reasons = []
-            if trip_prefix:
-                all_reasons.append(trip_prefix)
-            if ai_result.get("reason"):
-                all_reasons.append(f"AI判断：{ai_result['reason']}")
-            all_reasons.extend(rule_reasons)
-            return {
-                "approved": False,
-                "category": category,
-                "reason": "；".join(all_reasons),
-            }
-        else:
-            # Rules pass, respect AI decision
+    # AI 模式下直接让 AI 全权判断
+    if config.get("enabled") and config.get("api_key"):
+        try:
+            ai_result = ai_judge(amount, description, recent_items=recent_items, recent_total=recent_total)
+            category = ai_result.get("category", category)
             reason = ai_result.get("reason", "AI判断通过")
             if trip_prefix:
                 reason = trip_prefix + reason
@@ -201,23 +240,27 @@ def judge_expense(amount, description):
                 "category": category,
                 "reason": reason,
             }
-    else:
-        # Pure rule-based (no AI or AI failed)
-        if amount > 1000 and rule_approved:
-            rule_reasons.append(f"单笔 {amount:.2f} 元属于大额支出，请慎重考虑（已批准）")
+        except Exception:
+            pass  # AI failed, fall through to rule-based
 
-        if rule_approved and not rule_reasons:
-            rule_reasons.append(f"余额充足，分类【{category}】未超支，可以支出。")
+    # Rule-based fallback (AI disabled or failed)
+    rule_approved, rule_reasons, category = _check_rules(amount, category)
 
-        reason = "；".join(rule_reasons)
-        if trip_prefix:
-            reason = trip_prefix + reason
+    if amount > 1000 and rule_approved:
+        rule_reasons.append(f"单笔 {amount:.2f} 元属于大额支出，请慎重考虑（已批准）")
 
-        return {
-            "approved": rule_approved,
-            "category": category,
-            "reason": reason,
-        }
+    if rule_approved and not rule_reasons:
+        rule_reasons.append(f"余额充足，分类【{category}】未超支，可以支出。")
+
+    reason = "；".join(rule_reasons)
+    if trip_prefix:
+        reason = trip_prefix + reason
+
+    return {
+        "approved": rule_approved,
+        "category": category,
+        "reason": reason,
+    }
 
 
 def judge_batch_expense(items):
@@ -242,13 +285,35 @@ def judge_batch_expense(items):
             "category": cat,
         })
 
-    # 合并同分类金额进行规则检查
+    # AI 模式下让关键词未识别的 item 单独分类
+    ai_config = load_data().get("api_config", {})
+    if ai_config.get("enabled") and ai_config.get("api_key"):
+        for item in item_results:
+            if item["category"] == "其他":
+                ai_cat = ai_classify(item["description"])
+                if ai_cat:
+                    item["category"] = ai_cat
+
+    # AI 模式下直接让 AI 全权判断
+    config = load_data().get("api_config", {})
+    if config.get("enabled") and config.get("api_key"):
+        try:
+            ai_result = ai_judge(total_amount, f"本次外出消费：{combined_desc}")
+            return {
+                "approved": ai_result.get("approved", True),
+                "reason": ai_result.get("reason", "AI判断通过"),
+                "total": total_amount,
+                "items": item_results,
+            }
+        except Exception:
+            pass  # AI failed, fall through to rule-based
+
+    # Rule-based fallback (AI disabled or failed)
     data = load_data()
     limits = data.get("category_limits", {})
     month_budget = data.get("monthly_budget", 0)
     month_spent = get_month_spent()
 
-    # 按分类合并本次批量金额
     batch_by_category = {}
     for item in item_results:
         cat = item["category"]
@@ -257,7 +322,6 @@ def judge_batch_expense(items):
     rule_reasons = []
     rule_approved = True
 
-    # 检查总预算
     if month_budget <= 0:
         rule_reasons.append("本月总预算未设置或为 0")
         rule_approved = False
@@ -265,56 +329,31 @@ def judge_batch_expense(items):
         rule_reasons.append(f"本次合计 {total_amount:.2f} 元，加上本月已用 {month_spent:.2f} 元将超出总预算 {month_budget:.2f} 元")
         rule_approved = False
 
-    # 检查各分类上限（本月累计 + 批量金额 + 最近1小时）
     for cat, batch_amount in batch_by_category.items():
         cat_limit = limits.get(cat, 0)
         cat_spent = get_category_spent(cat)
         cat_spent_recent = get_category_spent_recent(cat, hours=1)
 
-        if cat_limit > 0 and cat_spent + batch_amount > cat_limit:
-            rule_reasons.append(f"【{cat}】分类本月已用 {cat_spent:.2f} 元，本次 {batch_amount:.2f} 元将超上限 {cat_limit:.2f} 元")
+        effective_cat_limit = min(cat_limit, month_budget) if cat_limit > 0 else 0
+        if effective_cat_limit > 0 and cat_spent + batch_amount > effective_cat_limit:
+            rule_reasons.append(f"【{cat}】分类本月已用 {cat_spent:.2f} 元，本次 {batch_amount:.2f} 元将超上限 {effective_cat_limit:.2f} 元")
             rule_approved = False
 
-        if cat_limit > 0 and cat_spent_recent + batch_amount > cat_limit:
-            rule_reasons.append(f"【{cat}】最近1小时内已用 {cat_spent_recent:.2f} 元，本次 {batch_amount:.2f} 元将超上限 {cat_limit:.2f} 元")
+        if effective_cat_limit > 0 and cat_spent_recent + batch_amount > effective_cat_limit:
+            rule_reasons.append(f"【{cat}】最近1小时内已用 {cat_spent_recent:.2f} 元，本次 {batch_amount:.2f} 元将超上限 {effective_cat_limit:.2f} 元")
             rule_approved = False
 
-    # AI 判断（用合并描述）
-    ai_result = None
-    config = data.get("api_config", {})
-    if config.get("enabled") and config.get("api_key"):
-        try:
-            ai_result = ai_judge(total_amount, f"本次外出消费：{combined_desc}")
-        except Exception:
-            pass
+        short_term_limit = month_budget * 0.15
+        if cat_spent_recent + batch_amount > short_term_limit:
+            rule_reasons.append(f"【{cat}】最近1小时内已用 {cat_spent_recent:.2f} 元，本次 {batch_amount:.2f} 元将超短时限额 {short_term_limit:.2f} 元")
+            rule_approved = False
 
-    # 组装结果
-    if ai_result is not None:
-        if not rule_approved:
-            all_reasons = []
-            if ai_result.get("reason"):
-                all_reasons.append(f"AI判断：{ai_result['reason']}")
-            all_reasons.extend(rule_reasons)
-            return {
-                "approved": False,
-                "reason": "；".join(all_reasons),
-                "total": total_amount,
-                "items": item_results,
-            }
-        else:
-            return {
-                "approved": ai_result.get("approved", True),
-                "reason": ai_result.get("reason", "AI判断通过"),
-                "total": total_amount,
-                "items": item_results,
-            }
-    else:
-        if rule_approved and not rule_reasons:
-            rule_reasons.append(f"本次消费合计 {total_amount:.2f} 元，余额充足，可以支出。")
+    if rule_approved and not rule_reasons:
+        rule_reasons.append(f"本次消费合计 {total_amount:.2f} 元，余额充足，可以支出。")
 
-        return {
-            "approved": rule_approved,
-            "reason": "；".join(rule_reasons),
-            "total": total_amount,
-            "items": item_results,
-        }
+    return {
+        "approved": rule_approved,
+        "reason": "；".join(rule_reasons),
+        "total": total_amount,
+        "items": item_results,
+    }

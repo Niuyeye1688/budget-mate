@@ -1,5 +1,7 @@
 import sys
 
+APP_VERSION = "1.4.2"
+
 if sys.platform == "win32" and getattr(sys, "frozen", False):
     import ctypes
     ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
@@ -54,7 +56,7 @@ if __name__ == "__main__":
         import sys
         sys.exit(1)
     window = webview.create_window(
-        "经费审批与记账助手",
+        f"经费审批与记账助手 v{APP_VERSION}",
         f"http://127.0.0.1:{port}",
         width=1280,
         height=800,

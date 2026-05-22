@@ -41,13 +41,16 @@ def sw():
 def api_get_config():
     config = load_data().get("api_config", {})
     # Don't return the actual api_key to frontend for security
-    return jsonify({
+    resp = jsonify({
         "enabled": config.get("enabled", False),
         "base_url": config.get("base_url", "https://api.deepseek.com"),
         "model": config.get("model", "deepseek-v4-pro"),
         "has_key": bool(config.get("api_key", "")),
         "dietary_preferences": config.get("dietary_preferences", ""),
     })
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/api/config", methods=["POST"])

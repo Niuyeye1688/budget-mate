@@ -95,10 +95,11 @@ def export_bill(content, filename=None):
 
 
 def _get_meal_by_hour(hour):
-    """根据小时判断餐段，返回 (餐段名, 剩余餐段列表)。只分午餐和晚餐。"""
+    """根据小时判断餐段，返回 (餐段名, 剩余餐段列表)。"""
     meals = [
+        ("早餐", list(range(6, 11))),            # 6:00-10:59
         ("午餐", list(range(11, 17))),           # 11:00-16:59
-        ("晚餐", list(range(17, 24)) + list(range(0, 11))),  # 17:00-10:59
+        ("晚餐", list(range(17, 24))),           # 17:00-23:59
     ]
     remaining = []
     found = False
@@ -110,6 +111,9 @@ def _get_meal_by_hour(hour):
             remaining.append(name)
     if found:
         return remaining[0], remaining
+    # 0:00-5:59 视为下一餐是早餐
+    if hour < 6:
+        return "早餐", ["早餐", "午餐", "晚餐"]
     return None, []
 
 
@@ -124,8 +128,9 @@ def get_meal_suggestion():
 
     # 如果当前餐段已有餐饮支出，不再提示
     meals = [
+        ("早餐", list(range(6, 11))),
         ("午餐", list(range(11, 17))),
-        ("晚餐", list(range(17, 24)) + list(range(0, 11))),
+        ("晚餐", list(range(17, 24))),
     ]
     current_meal_hours = next((m[1] for m in meals if m[0] == meal), [])
     has_meal = any(

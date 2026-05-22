@@ -6,7 +6,7 @@
   <title>经费审批与记账助手</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#2c3e50">
+  <meta name="theme-color" content="#1a2e2c">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
@@ -14,14 +14,15 @@
   <div class="container">
     <header>
       <h1>经费审批与记账助手</h1>
+      <p>智能审批 · 预算管理 · 账单生成</p>
     </header>
 
     <nav>
       <button class="active" onclick="showTab('dashboard')">仪表盘</button>
       <button onclick="showTab('approve')">审批/记账</button>
+      <button onclick="showTab('trip')">行程</button>
       <button onclick="showTab('records')">记录</button>
       <button onclick="showTab('approvals')">审批记录</button>
-      <button onclick="showTab('trip')">行程</button>
       <button onclick="showTab('bills')">账单</button>
       <button onclick="showTab('settings')">设置</button>
     </nav>
@@ -30,7 +31,7 @@
     <div id="dashboard" class="section active">
       <h2>本月概览</h2>
       <div class="card-grid">
-        <div class="card">
+        <div class="card" data-highlight="true">
           <div class="label">本月预算</div>
           <div class="value" id="dash-budget">0.00</div>
         </div>
@@ -55,6 +56,7 @@
     <!-- 审批/记账 -->
     <div id="approve" class="section">
       <h2>提交支出审批</h2>
+      <p>逐笔或批量提交支出，AI 会自动分类并审批。</p>
       <div id="approve-meal-tip" style="margin-bottom:16px;display:none;padding:10px 14px;background:#e8f4fd;border-radius:6px;color:#2980b9;font-size:0.95rem;"></div>
       <form id="approve-form" onsubmit="submitBatchApproval(event)">
         <div id="batch-items">
@@ -67,7 +69,6 @@
               <label>用途描述</label>
               <input type="text" class="batch-desc" required placeholder="例如：午饭">
             </div>
-            <div class="batch-remove-placeholder"></div>
           </div>
         </div>
         <div class="batch-actions">
@@ -77,31 +78,10 @@
       <div id="approve-result" class="result-box"></div>
     </div>
 
-    <!-- 记录 -->
-    <div id="records" class="section">
-      <h2>支出记录</h2>
-      <button class="btn btn-danger" onclick="clearRecords()" style="margin-bottom:15px;background:#e74c3c;color:white;">清空所有记录</button>
-      <div id="records-table"></div>
-    </div>
-
-    <!-- 审批记录 -->
-    <div id="approvals" class="section">
-      <h2>审批记录</h2>
-      <div id="approvals-table"></div>
-    </div>
-
-    <!-- 账单 -->
-    <div id="bills" class="section">
-      <h2>账单</h2>
-      <button class="btn btn-primary" onclick="loadDailyBill()" style="margin-right:10px;margin-bottom:15px;">生成今日账单</button>
-      <button class="btn btn-primary" onclick="loadWeeklyBill()" style="margin-bottom:15px;">生成本周账单</button>
-      <div id="bill-content" class="bill-text"></div>
-    </div>
-
     <!-- 行程审批 -->
     <div id="trip" class="section">
       <h2>行程审批</h2>
-      <p style="color:#7f8c8d;font-size:0.9rem;margin-bottom:12px;">规划一次外出/旅行的全部开支，统一审批。</p>
+      <p>规划一次外出或旅行的全部开支，统一审批。</p>
       <form id="trip-form" onsubmit="submitTripApproval(event)">
         <div id="trip-items">
           <div class="trip-row" data-index="0">
@@ -130,9 +110,35 @@
           <button type="button" class="btn btn-secondary" onclick="addTripRow()">+ 添加一项</button>
           <button type="submit" class="btn btn-primary">提交行程审批</button>
         </div>
-        <div id="trip-total" style="margin-top:12px;font-size:1.1rem;font-weight:600;color:#2c3e50;">合计：0.00 元</div>
+        <div id="trip-total">合计：0.00 元</div>
       </form>
       <div id="trip-result" class="result-box"></div>
+    </div>
+
+    <!-- 记录 -->
+    <div id="records" class="section">
+      <h2>支出记录</h2>
+      <p>所有已审批通过的支出明细。</p>
+      <button class="btn btn-danger" onclick="clearRecords()" style="margin-bottom:15px;">清空所有记录</button>
+      <div id="records-table"></div>
+    </div>
+
+    <!-- 审批记录 -->
+    <div id="approvals" class="section">
+      <h2>审批记录</h2>
+      <p>全部审批历史，包含通过和拒绝的记录。</p>
+      <div id="approvals-table"></div>
+    </div>
+
+    <!-- 账单 -->
+    <div id="bills" class="section">
+      <h2>账单</h2>
+      <p>生成每日或每周汇总账单，方便报销或记录。</p>
+      <div style="margin-bottom:15px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="loadDailyBill()">生成今日账单</button>
+        <button class="btn btn-primary" onclick="loadWeeklyBill()">生成本周账单</button>
+      </div>
+      <div id="bill-content" class="bill-text" style="display:none;"></div>
     </div>
 
     <!-- 设置 -->
@@ -203,7 +209,7 @@
             <button type="submit" class="btn btn-success">保存</button>
           </div>
         </div>
-        <div class="form-group" style="margin-top:12px;">
+        <div id="api-base-url-group" class="form-group" style="margin-top:12px;">
           <label>API 地址（一般不用改）</label>
           <input type="text" id="ai-base-url" value="https://api.deepseek.com/v1">
         </div>
@@ -218,12 +224,35 @@
       </form>
 
       <h3>数据同步</h3>
-      <div style="margin-bottom:20px;">
-        <button class="btn btn-primary" onclick="exportDataFile()" style="margin-right:10px;">导出数据</button>
-        <label class="btn btn-success" style="display:inline-block;position:relative;cursor:pointer;">
+      <div style="margin-bottom:20px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-primary" onclick="exportDataFile()">导出数据</button>
+        <label class="btn btn-success" style="position:relative;cursor:pointer;">
           导入数据
           <input type="file" id="import-file" accept=".json" style="position:absolute;left:0;top:0;opacity:0;width:100%;height:100%;cursor:pointer;" onchange="importDataFile(event)">
         </label>
+      </div>
+    </div>
+  </div>
+
+  <div id="sw-status" style="position:fixed;bottom:10px;right:10px;padding:8px 12px;border-radius:6px;font-size:12px;z-index:9999;background:#95a5a6;color:white;max-width:80%;word-break:break-all;">SW: 检测中...</div>
+
+  <!-- 自定义确认弹窗 -->
+  <div id="confirm-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:10000;align-items:center;justify-content:center;backdrop-filter:blur(2px);">
+    <div id="confirm-dialog" style="background:#fff;border-radius:12px;padding:24px 20px 16px;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18);animation:confirm-in 200ms ease-out;">
+      <p id="confirm-msg" style="margin:0 0 20px;font-size:15px;color:#2a2825;line-height:1.5;"></p>
+      <div style="display:flex;justify-content:flex-end;gap:10px;">
+        <button id="confirm-cancel" class="confirm-btn confirm-cancel-btn">取消</button>
+        <button id="confirm-ok" class="confirm-btn confirm-ok-btn">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 自定义提示弹窗 -->
+  <div id="alert-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:10000;align-items:center;justify-content:center;backdrop-filter:blur(2px);">
+    <div style="background:#fff;border-radius:12px;padding:24px 20px 16px;max-width:320px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.18);animation:confirm-in 200ms ease-out;">
+      <p id="alert-msg" style="margin:0 0 20px;font-size:15px;color:#2a2825;line-height:1.5;"></p>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="alert-ok" class="confirm-btn confirm-ok-btn">确定</button>
       </div>
     </div>
   </div>
@@ -232,6 +261,14 @@
   <script src="/static/db.js"></script>
   <script src="/static/app-logic.js"></script>
   <script>
+    // Capacitor 检测
+    const isCapacitor = !!(window.Capacitor || window.cordova);
+    if (isCapacitor) {
+      document.getElementById('sw-status').style.display = 'none';
+      const apiGroup = document.getElementById('api-base-url-group');
+      if (apiGroup) apiGroup.style.display = 'none';
+    }
+
     let backendChecked = false;
     let useBackend = true;
 
@@ -249,6 +286,7 @@
 
     async function api(url, opts) {
       await detectBackend();
+      const baseUrl = url.split('?')[0];
       if (useBackend) {
         try {
           const res = await fetch(url, opts);
@@ -259,34 +297,34 @@
         }
       }
       // Frontend fallback
-      if (url === '/api/budget' && !opts) return await getBudgetData();
-      if (url === '/api/budget' && opts?.method === 'POST') {
+      if (baseUrl === '/api/budget' && !opts) return await getBudgetData();
+      if (baseUrl === '/api/budget' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         await setMonthlyBudget(body.amount);
         return { success: true, monthly_budget: body.amount };
       }
-      if (url === '/api/limits' && opts?.method === 'POST') {
+      if (baseUrl === '/api/limits' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         await setCategoryLimit(body.category, body.amount);
         return { success: true, category: body.category, limit: body.amount };
       }
-      if (url === '/api/records' && !opts) return { records: (await getAllRecords()).reverse() };
-      if (url === '/api/records' && opts?.method === 'DELETE') {
+      if (baseUrl === '/api/records' && !opts) return { records: (await getAllRecords()).reverse() };
+      if (baseUrl === '/api/records' && opts?.method === 'DELETE') {
         await clearAllRecords();
         return { success: true };
       }
-      const recordDeleteMatch = url.match(/^\/api\/records\/(\d+)$/);
+      const recordDeleteMatch = baseUrl.match(/^\/api\/records\/(\d+)$/);
       if (recordDeleteMatch && opts?.method === 'DELETE') {
-        await deleteRecord(parseInt(recordDeleteMatch[1]));
+        await dbDeleteRecord(parseInt(recordDeleteMatch[1]));
         return { success: true };
       }
-      if (url === '/api/approve' && opts?.method === 'POST') {
+      if (baseUrl === '/api/approve' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         const result = await judgeExpense(body.amount, body.description);
         await addRecord(body.amount, body.description, result.category, result.approved, result.reason);
         return result;
       }
-      if (url === '/api/approve/batch' && opts?.method === 'POST') {
+      if (baseUrl === '/api/approve/batch' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         const result = await judgeBatchExpense(body.items);
         const reason = result.reason || '';
@@ -295,10 +333,10 @@
         }
         return result;
       }
-      if (url === '/api/bill/daily') return { bill: await generateDailyBill() };
-      if (url === '/api/bill/weekly') return { bill: await generateWeeklyBill() };
-      if (url === '/api/meal-suggestion') return await getMealSuggestion();
-      if (url === '/api/config' && !opts) {
+      if (baseUrl === '/api/bill/daily') return { bill: await generateDailyBill() };
+      if (baseUrl === '/api/bill/weekly') return { bill: await generateWeeklyBill() };
+      if (baseUrl === '/api/meal-suggestion') return await getMealSuggestion();
+      if (baseUrl === '/api/config' && !opts) {
         const cfg = await getConfig('api_config', {});
         return {
           enabled: cfg.enabled || false,
@@ -308,7 +346,7 @@
           dietary_preferences: cfg.dietary_preferences || '',
         };
       }
-      if (url === '/api/config' && opts?.method === 'POST') {
+      if (baseUrl === '/api/config' && opts?.method === 'POST') {
         const body = JSON.parse(opts.body);
         const cfg = await getConfig('api_config', {});
         if ('enabled' in body) cfg.enabled = body.enabled;
@@ -366,10 +404,10 @@
       updateTripTotal();
     }
 
-    function removeTripRow(btn) {
+    async function removeTripRow(btn) {
       const container = document.getElementById('trip-items');
       if (container.children.length <= 1) {
-        alert('至少保留一项');
+        await showAlert('至少保留一项');
         return;
       }
       btn.parentElement.remove();
@@ -400,7 +438,7 @@
       });
 
       if (items.length === 0) {
-        alert('请至少填写一项支出');
+        await showAlert('请至少填写一项支出');
         return;
       }
 
@@ -507,9 +545,9 @@
           </div>
         `).join('');
         allocContainer.innerHTML = `
-          <div class="card" style="background:#e8f4fd;">
+          <div class="card" style="background:var(--accent-light);border-color:rgba(26,138,125,0.2);">
             <div class="label">日均预算</div>
-            <div class="value" style="color:#2980b9;">${data.daily_budget.toFixed(2)}</div>
+            <div class="value" style="color:var(--accent);">${data.daily_budget.toFixed(2)}</div>
           </div>
           ${allocCards}
         `;
@@ -539,35 +577,6 @@
       }).join('');
     }
 
-    function addBatchRow() {
-      const container = document.getElementById('batch-items');
-      const idx = container.children.length;
-      const row = document.createElement('div');
-      row.className = 'batch-row';
-      row.dataset.index = idx;
-      row.innerHTML = `
-        <div class="form-group">
-          <label>金额（元）</label>
-          <input type="number" class="batch-amount" step="0.01" required placeholder="例如：15">
-        </div>
-        <div class="form-group">
-          <label>用途描述</label>
-          <input type="text" class="batch-desc" required placeholder="例如：奶茶">
-        </div>
-        <button type="button" class="btn btn-remove" onclick="removeBatchRow(this)" title="删除">-</button>
-      `;
-      container.appendChild(row);
-    }
-
-    function removeBatchRow(btn) {
-      const container = document.getElementById('batch-items');
-      if (container.children.length <= 1) {
-        alert('至少保留一项');
-        return;
-      }
-      btn.parentElement.remove();
-    }
-
     async function submitBatchApproval(e) {
       e.preventDefault();
       const rows = document.querySelectorAll('.batch-row');
@@ -581,7 +590,7 @@
       });
 
       if (items.length === 0) {
-        alert('请至少填写一项支出');
+        await showAlert('请至少填写一项支出');
         return;
       }
 
@@ -604,7 +613,7 @@
       box.innerHTML = `<strong>${result.approved ? '批准' : '拒绝'}</strong>（本次合计 ${result.total ? result.total.toFixed(2) : items.reduce((s, i) => s + i.amount, 0).toFixed(2)} 元）<br>
         理由：${result.reason}${itemsHtml}`;
 
-      // Reset form to single row
+      // Reset form
       document.getElementById('batch-items').innerHTML = `
         <div class="batch-row" data-index="0">
           <div class="form-group">
@@ -620,14 +629,14 @@
     }
 
     async function clearRecords() {
-      if (!confirm('确定要清空所有记录吗？此操作不可恢复。')) return;
+      if (!await showConfirm('确定要清空所有记录吗？此操作不可恢复。')) return;
       await api('/api/records', { method: 'DELETE' });
       loadRecords();
       loadDashboard();
     }
 
     async function deleteSingleRecord(id) {
-      if (!confirm('确定删除这条记录吗？')) return;
+      if (!await showConfirm('确定删除这条记录吗？')) return;
       await api('/api/records/' + id, { method: 'DELETE' });
       loadRecords();
       loadApprovals();
@@ -695,7 +704,9 @@
       if (window.innerWidth <= 600) {
         bill = bill.replace(/={20,}/g, '='.repeat(30));
       }
-      document.getElementById('bill-content').textContent = bill;
+      const el = document.getElementById('bill-content');
+      el.textContent = bill;
+      el.style.display = 'block';
     }
 
     async function loadWeeklyBill() {
@@ -704,7 +715,9 @@
       if (window.innerWidth <= 600) {
         bill = bill.replace(/={20,}/g, '='.repeat(30));
       }
-      document.getElementById('bill-content').textContent = bill;
+      const el = document.getElementById('bill-content');
+      el.textContent = bill;
+      el.style.display = 'block';
     }
 
     async function setBudget(e) {
@@ -715,7 +728,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount })
       });
-      alert('月预算已保存');
+      await showAlert('月预算已保存');
       document.getElementById('set-budget-amount').value = '';
     }
 
@@ -728,14 +741,16 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, amount })
       });
-      alert(`【${category}】上限已设置为 ${amount.toFixed(2)} 元`);
+      await showAlert(`【${category}】上限已设置为 ${amount.toFixed(2)} 元`);
       document.getElementById('limit-amount').value = '';
     }
 
     async function loadConfig() {
-      const data = await api('/api/config');
+      const data = await api('/api/config?t=' + Date.now());
       document.getElementById('ai-enabled').checked = data.enabled;
-      document.getElementById('ai-model').value = data.model;
+      const modelSelect = document.getElementById('ai-model');
+      modelSelect.value = data.model;
+      modelSelect.dispatchEvent(new Event('change'));
       document.getElementById('ai-base-url').value = data.base_url;
       document.getElementById('ai-dietary').value = data.dietary_preferences || '';
       if (data.has_key) {
@@ -758,7 +773,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      alert('AI 配置已保存');
+      await showAlert('AI 配置已保存');
       document.getElementById('ai-api-key').value = '';
       loadConfig();
     }
@@ -785,18 +800,18 @@
       if (!file) return;
       try {
         await importFromJSON(file);
-        alert('数据导入成功');
+        await showAlert('数据导入成功');
         loadDashboard();
         loadRecords();
         loadConfig();
       } catch (err) {
-        alert('导入失败：' + err.message);
+        await showAlert('导入失败：' + err.message);
       }
       e.target.value = '';
     }
 
     const swStatus = document.getElementById('sw-status');
-    if ('serviceWorker' in navigator) {
+    if (!isCapacitor && 'serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js?v=2')
         .then(reg => {
           swStatus.textContent = 'SW: 已注册 ' + reg.scope;
@@ -827,42 +842,46 @@
     loadDashboard();
     loadConfig();
     loadMealSuggestion();
-  </script>
-  <div id="sw-status" style="position:fixed;bottom:10px;right:10px;padding:8px 12px;border-radius:6px;font-size:12px;z-index:9999;background:#95a5a6;color:white;max-width:80%;word-break:break-all;">SW: 检测中...</div>
-  <script>
-    window.addEventListener('DOMContentLoaded', function() {
-      const swStatus = document.getElementById('sw-status');
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js?v=2')
-          .then(function(reg) {
-            swStatus.textContent = 'SW: 已注册 ' + reg.scope;
-            swStatus.style.background = '#27ae60';
-            if (reg.waiting) {
-              reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-            }
-            reg.addEventListener('updatefound', function() {
-              var newWorker = reg.installing;
-              if (newWorker) {
-                newWorker.addEventListener('statechange', function() {
-                  if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                    newWorker.postMessage({ type: 'SKIP_WAITING' });
-                  }
-                });
-              }
-            });
-          })
-          .catch(function(err) {
-            swStatus.textContent = 'SW: 失败 - ' + err.message;
-            swStatus.style.background = '#e74c3c';
-          });
-      } else {
-        var ua = navigator.userAgent || 'unknown';
-        var chromeVer = ua.match(/Chrome\/(\d+)/);
-        var ver = chromeVer ? chromeVer[1] : '?';
-        swStatus.innerHTML = 'SW: 不可用<br>Chrome v' + ver + '<br>协议:' + location.protocol + '<br>UA:' + ua.substring(0, 40);
-        swStatus.style.background = '#f39c12';
-      }
-    });
+
+    // 自定义确认弹窗
+    function showConfirm(msg) {
+      return new Promise(resolve => {
+        const overlay = document.getElementById('confirm-overlay');
+        const msgEl = document.getElementById('confirm-msg');
+        const cancelBtn = document.getElementById('confirm-cancel');
+        const okBtn = document.getElementById('confirm-ok');
+        msgEl.textContent = msg;
+        overlay.style.display = 'flex';
+        const close = (result) => {
+          overlay.style.display = 'none';
+          cancelBtn.onclick = null;
+          okBtn.onclick = null;
+          resolve(result);
+        };
+        cancelBtn.onclick = () => close(false);
+        okBtn.onclick = () => close(true);
+        overlay.onclick = (e) => { if (e.target === overlay) close(false); };
+      });
+    }
+
+    // 自定义提示弹窗
+    function showAlert(msg) {
+      return new Promise(resolve => {
+        const overlay = document.getElementById('alert-overlay');
+        const msgEl = document.getElementById('alert-msg');
+        const okBtn = document.getElementById('alert-ok');
+        msgEl.textContent = msg;
+        overlay.style.display = 'flex';
+        const close = () => {
+          overlay.style.display = 'none';
+          okBtn.onclick = null;
+          overlay.onclick = null;
+          resolve();
+        };
+        okBtn.onclick = close;
+        overlay.onclick = (e) => { if (e.target === overlay) close(); };
+      });
+    }
   </script>
 </body>
 </html>

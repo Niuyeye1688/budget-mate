@@ -94,10 +94,6 @@ async function clearAllRecords() {
   await dbClearRecords();
 }
 
-async function deleteRecord(id) {
-  await dbDeleteRecord(id);
-}
-
 // ========== Category Detection ==========
 function detectCategory(description) {
   const desc = description.toLowerCase();
@@ -491,8 +487,9 @@ async function generateMonthlyBill(month) {
 // ========== Meal Suggestion ==========
 function _getMealByHour(hour) {
   const meals = [
-    ['午餐', [...Array(6).keys()].map(i => i + 11)],
-    ['晚餐', [...Array(7).keys()].map(i => i + 17).concat([...Array(11).keys()].map(i => i))],
+    ['早餐', [...Array(5).keys()].map(i => i + 6)],            // 6-10
+    ['午餐', [...Array(6).keys()].map(i => i + 11)],           // 11-16
+    ['晚餐', [...Array(7).keys()].map(i => i + 17)],           // 17-23
   ];
   let remaining = [];
   let found = false;
@@ -505,6 +502,8 @@ function _getMealByHour(hour) {
     }
   }
   if (found) return [remaining[0], remaining];
+  // 0:00-5:59
+  if (hour < 6) return ['早餐', ['早餐', '午餐', '晚餐']];
   return [null, []];
 }
 
@@ -516,9 +515,12 @@ async function getMealSuggestion() {
 
   // 如果当前餐段已有餐饮支出，不再提示
   const todayRecords = await getTodayRecords();
-  const currentMealHours = meal === '午餐'
-    ? [...Array(6).keys()].map(i => i + 11)
-    : [...Array(7).keys()].map(i => i + 17).concat([...Array(11).keys()].map(i => i));
+  const mealHoursMap = {
+    '早餐': [...Array(5).keys()].map(i => i + 6),
+    '午餐': [...Array(6).keys()].map(i => i + 11),
+    '晚餐': [...Array(7).keys()].map(i => i + 17),
+  };
+  const currentMealHours = mealHoursMap[meal] || [];
   const hasMeal = todayRecords.some(r => {
     if (r.category !== '餐饮' || !r.approved) return false;
     const rh = new Date(r.date.replace(' ', 'T')).getHours();

@@ -28,6 +28,7 @@ DEFAULT_DATA = {
         "model": "deepseek-v4-pro",
     },
     "current_month": "",
+    "meal_suggestion_hidden": "",
 }
 
 

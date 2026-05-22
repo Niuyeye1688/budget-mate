@@ -6,6 +6,7 @@ from ledger import get_today_records, get_week_records, get_month_spent
 from budget import get_monthly_budget, get_category_limits, get_remaining_budget
 import os
 from storage import load_data, save_data, DATA_FILE
+from approver import SYSTEM_MESSAGE
 
 
 def format_records(records):
@@ -94,49 +95,62 @@ def export_bill(content, filename=None):
     return filename
 
 
-def _get_meal_by_hour(hour):
-    """根据小时判断餐段，返回 (餐段名, 剩余餐段列表)。"""
-    meals = [
-        ("早餐", list(range(6, 11))),            # 6:00-10:59
-        ("午餐", list(range(11, 17))),           # 11:00-16:59
-        ("晚餐", list(range(17, 24))),           # 17:00-23:59
-    ]
-    remaining = []
-    found = False
-    for name, hours in meals:
-        if hour in hours:
-            found = True
-            remaining.append(name)
-        elif found:
-            remaining.append(name)
-    if found:
-        return remaining[0], remaining
-    # 0:00-5:59 视为下一餐是早餐
-    if hour < 6:
-        return "早餐", ["早餐", "午餐", "晚餐"]
+def _get_meal_by_hour(hour, minute=0):
+    """根据时间判断餐段，返回 (餐段名, 剩余餐段列表)。
+    午餐: 10:30-13:59, 晚餐: 16:00-19:59, 其他时间无建议。"""
+    is_lunch = (hour == 10 and minute >= 30) or (11 <= hour <= 13)
+    is_dinner = 16 <= hour <= 19
+
+    if is_lunch:
+        return "午餐", ["午餐", "晚餐"]
+    if is_dinner:
+        return "晚餐", ["晚餐"]
     return None, []
+
+
+def hide_meal_suggestion():
+    """标记当前餐段的用餐建议为已隐藏"""
+    data = load_data()
+    data["meal_suggestion_hidden"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    save_data(data)
+
+
+def _is_in_meal_time(date_str, meal):
+    """判断一条记录的时间是否在指定餐段内"""
+    dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+    h, m = dt.hour, dt.minute
+    if meal == "午餐":
+        return (h == 10 and m >= 30) or (11 <= h <= 13)
+    if meal == "晚餐":
+        return 16 <= h <= 19
+    return False
 
 
 def get_meal_suggestion():
     """根据当前时间和剩余预算，返回用餐建议"""
     now = datetime.now()
-    hour = now.hour
 
-    meal, remaining_meals = _get_meal_by_hour(hour)
+    meal, remaining_meals = _get_meal_by_hour(now.hour, now.minute)
     if meal is None:
         return {"meal": None}
 
+    # 持久化检查：如果已标记隐藏且仍在同一餐段内，不显示
+    data = load_data()
+    hidden_ts = data.get("meal_suggestion_hidden", "")
+    if hidden_ts:
+        if _is_in_meal_time(hidden_ts, meal):
+            return {"meal": None}
+        else:
+            # 已过餐段，清除标记
+            data["meal_suggestion_hidden"] = ""
+            save_data(data)
+
     # 如果当前餐段已有餐饮支出，不再提示
-    meals = [
-        ("早餐", list(range(6, 11))),
-        ("午餐", list(range(11, 17))),
-        ("晚餐", list(range(17, 24))),
-    ]
-    current_meal_hours = next((m[1] for m in meals if m[0] == meal), [])
+    today_records = get_today_records()
     has_meal = any(
         r for r in today_records
         if r["category"] == "餐饮" and r["approved"]
-        and datetime.strptime(r["date"], "%Y-%m-%d %H:%M:%S").hour in current_meal_hours
+        and _is_in_meal_time(r["date"], meal)
     )
     if has_meal:
         return {"meal": None}
@@ -152,7 +166,6 @@ def get_meal_suggestion():
     daily_budget = monthly_remaining / remaining_days
 
     # 今天餐饮已用
-    today_records = get_today_records()
     daily_spent = sum(
         r["amount"]
         for r in today_records
@@ -199,16 +212,9 @@ def ai_recommend_meal(meal, budget, preferences=""):
 
     pref_text = f"\n用户饮食偏好/忌口：{preferences}" if preferences else ""
 
-    prompt = f"""你是贴心的饮食顾问，帮用户推荐今天{meal}吃什么。
+    prompt = f"""帮用户推荐今天{meal}吃什么。
 
 用户预算：建议控制在 {budget:.0f} 元内。{pref_text}
-
-要求：
-1. 推荐 2-3 个符合预算的食物选项
-2. 每个选项包含：名称、预估价格（整数）、一句话推荐理由
-3. 推荐要接地气、实用，避开用户忌口的食物
-4. 如果预算很低（<15元），优先推荐省钱又饱腹的选择
-5. 如果预算充裕（>40元），可以推荐稍微丰富一点的
 
 输出严格JSON数组，不要有任何其他文字：
 [{{"name": "选项名称", "price": 预估价格, "reason": "推荐理由"}}]"""
@@ -216,7 +222,7 @@ def ai_recommend_meal(meal, budget, preferences=""):
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "你是一个贴心的饮食顾问，帮助用户选择今天吃什么。输出必须是JSON格式。"},
+            {"role": "system", "content": SYSTEM_MESSAGE},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.7,

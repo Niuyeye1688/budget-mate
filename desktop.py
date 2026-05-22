@@ -1,6 +1,6 @@
 import sys
 
-APP_VERSION = "1.4.2"
+APP_VERSION = "1.4.5"
 
 if sys.platform == "win32" and getattr(sys, "frozen", False):
     import ctypes

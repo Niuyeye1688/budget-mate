@@ -18,7 +18,7 @@ from budget import (
 )
 from approver import judge_expense, judge_batch_expense, detect_category
 from ledger import add_record, get_all_records, get_month_spent, get_category_spent
-from bills import generate_daily_bill, generate_weekly_bill, export_bill, get_meal_suggestion, check_monthly_reset
+from bills import generate_daily_bill, generate_weekly_bill, export_bill, get_meal_suggestion, hide_meal_suggestion, check_monthly_reset
 from storage import load_data, save_data
 
 app = Flask(__name__)
@@ -141,6 +141,8 @@ def api_approve():
     result = judge_expense(amount, description)
     cat = result["category"]
     add_record(amount, description, cat, approved=result["approved"], reason=result.get("reason", ""))
+    if result["approved"] and cat == "餐饮":
+        hide_meal_suggestion()
     return jsonify(result)
 
 
@@ -148,7 +150,8 @@ def api_approve():
 def api_approve_batch():
     data = request.get_json()
     items = data.get("items", [])
-    result = judge_batch_expense(items)
+    is_trip = data.get("is_trip", False)
+    result = judge_batch_expense(items, is_trip=is_trip)
     reason = result.get("reason", "")
     for item in result.get("items", []):
         add_record(
@@ -158,6 +161,8 @@ def api_approve_batch():
             approved=result["approved"],
             reason=reason,
         )
+    if result["approved"] and any(item["category"] == "餐饮" for item in result.get("items", [])):
+        hide_meal_suggestion()
     return jsonify(result)
 
 

@@ -1,3 +1,22 @@
+// 统一 system message，所有 AI 调用共享，最大化 DeepSeek 前缀缓存命中率
+const AI_SYSTEM_MESSAGE = `你是一位有鲜明个性的私人财务顾问，对合理支出温柔鼓励，对浪费行为犀利吐槽。输出必须是JSON格式。
+
+语气要求：
+- 如果批准：语气温柔亲切，像贴心闺蜜/兄弟一样，给用户满满的鼓励和认可
+- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉
+
+判断标准：
+1. 核心目标：让预算撑到月底不为零。日均可用预算是最重要的参考红线
+2. 餐饮类：正常一餐不应明显超过日均预算，超出需有正当理由（如聚餐、请客）。如果最近1小时内有其他餐饮消费，合并视为"本次一餐"判断
+3. 交通类：日常通勤单次不应超过日均预算的2倍，打车非急事应拒绝。如果最近1小时内有其他交通消费，合并视为"本次出行"判断
+4. 购物类：非必需品优先拒绝，奢侈品直接拒绝
+5. 娱乐类：每月不超过 2-3 次，单次不超过日均预算的3倍
+6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝
+
+消费分类规则：根据描述判断属于餐饮/交通/购物/娱乐/其他，只输出分类名。
+
+饮食推荐规则：推荐2-3个符合预算的食物选项，每个包含名称、预估价格、推荐理由。要接地气实用，避开用户忌口。如果预算很低（<15元），优先推荐省钱又饱腹的选择。如果预算充裕（>40元），可以推荐稍微丰富一点的。`;
+
 // ========== Budget ==========
 async function getMonthlyBudget() {
   return (await getConfig('monthly_budget', 0)) || 0;
@@ -120,6 +139,14 @@ async function checkRules(amount, category) {
   const catSpent = await getCategorySpent(category);
   const catSpentRecent = await getCategorySpentRecent(category, 1);
 
+  // 日消费限额
+  const todayRecords = await getTodayRecords();
+  const todayApproved = todayRecords.filter(r => r.approved).reduce((s, r) => s + r.amount, 0);
+  const now = new Date();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const remainingDays = daysInMonth - now.getDate() + 1;
+  const dailyBudget = remainingDays > 0 ? (monthBudget - monthSpent) / remainingDays : 0;
+
   const reasons = [];
   let approved = true;
 
@@ -128,6 +155,13 @@ async function checkRules(amount, category) {
     approved = false;
   } else if (monthSpent + amount > monthBudget) {
     reasons.push(`本月已用 ${monthSpent.toFixed(2)} 元，加上这笔 ${amount.toFixed(2)} 元将超出总预算 ${monthBudget.toFixed(2)} 元`);
+    approved = false;
+  }
+
+  // 日消费限额：今日已批 + 这笔不超过日均预算的 1.5 倍
+  const dailyLimit = dailyBudget * 1.5;
+  if (dailyBudget > 0 && todayApproved + amount > dailyLimit) {
+    reasons.push(`今日已批 ${todayApproved.toFixed(2)} 元，加上这笔 ${amount.toFixed(2)} 元将超出日限额 ${dailyLimit.toFixed(2)} 元（日均 ${dailyBudget.toFixed(2)} 元）`);
     approved = false;
   }
 
@@ -144,7 +178,7 @@ async function checkRules(amount, category) {
   }
 
   // 短时高频限制：1小时内同分类累计不超过月度总预算的 10%
-  const shortTermLimit = monthBudget * 0.1;
+  const shortTermLimit = monthBudget * 0.05;
   if (catSpentRecent + amount > shortTermLimit) {
     reasons.push(`【${category}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，加上这笔将超短时限额 ${shortTermLimit.toFixed(2)} 元`);
     approved = false;
@@ -154,7 +188,7 @@ async function checkRules(amount, category) {
 }
 
 // ========== AI Judge ==========
-async function aiJudge(amount, description, recentItems, recentTotal) {
+async function aiJudge(amount, description, recentItems, recentTotal, isTrip = false) {
   const config = await getConfig('api_config', {});
   const apiKey = config.api_key || '';
   const baseUrl = config.base_url || 'https://api.deepseek.com';
@@ -186,6 +220,17 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
   }
   const catText = catInfo.length ? catInfo.join('；') : '暂无分类预算';
 
+  // 今日已批总额
+  const todayRecords = await getTodayRecords();
+  const todayApproved = todayRecords.filter(r => r.approved).reduce((s, r) => s + r.amount, 0);
+  const todayRemaining = dailyBudget - todayApproved;
+
+  // 行程审批上下文
+  let tripContext = '';
+  if (isTrip) {
+    tripContext = '\n【注意：这是行程审批，属于大额低频支出通道，使用次数很少，请适当放宽标准。在保证通过后这个月剩余的天数都还有足够的餐饮预算下可以通过。】\n';
+  }
+
   let recentContext = '';
   if (recentItems && recentItems.length) {
     const lines = recentItems.map(i => `- ${i.description} ${i.amount.toFixed(0)}元`).join('\n');
@@ -193,17 +238,27 @@ async function aiJudge(amount, description, recentItems, recentTotal) {
     recentContext = `\n本次外出您在同分类已消费：\n${lines}\n加上这笔【${description}】${amount.toFixed(0)}元，本次外出合计 ${totalWithCurrent.toFixed(0)} 元。\n`;
   }
 
-  const prompt = `你是一位有鲜明个性的私人财务顾问，用户花钱前必须经你审批。你对合理的支出温柔体贴、热情鼓励，对浪费钱的行为则毫不留情地犀利吐槽。
+  const prompt = `用户当前财务状况：
+- 月预算：${monthBudget.toFixed(0)}元
+- 本月已用：${monthSpent.toFixed(0)}元
+- 本月剩余：${remaining.toFixed(0)}元
+- 今天是${currentDate}，本月还剩 ${remainingDays} 天
+- 日均可用预算：${dailyBudget.toFixed(0)}元
+- 今日已批：${todayApproved.toFixed(0)}元，今日剩余可用：${todayRemaining.toFixed(0)}元
+- 各分类使用情况：${catText}
 
-语气要求：
-- 如果批准：语气温柔亲切，像贴心闺蜜/兄弟一样，给用户满满的鼓励和认可
-- 如果拒绝：语气犀利毒舌，直接指出问题，带一点"恨铁不成钢"的感觉\n\n用户当前财务状况：\n- 月预算：${monthBudget.toFixed(0)}元\n- 本月已用：${monthSpent.toFixed(0)}元\n- 本月剩余：${remaining.toFixed(0)}元\n- 今天是${currentDate}，本月还剩 ${remainingDays} 天\n- 日均可用预算：${dailyBudget.toFixed(0)}元（目标：月底之前预算不为零，保证每天正常吃饭）\n- 各分类使用情况：${catText}\n\n用户申请支出：${amount.toFixed(0)}元\n用途描述：${description}\n${recentContext}\n判断标准：\n1. 核心目标：让预算撑到月底不为零。日均可用预算 ${dailyBudget.toFixed(0)} 元是最重要的参考红线\n2. 餐饮类：正常一餐不应明显超过日均预算，超出需有正当理由（如聚餐、请客）。如果最近1小时内有其他餐饮消费，合并视为"本次一餐"判断\n3. 交通类：日常通勤单次不应超过日均预算的2倍，打车非急事应拒绝。如果最近1小时内有其他交通消费，合并视为"本次出行"判断\n4. 购物类：非必需品优先拒绝，奢侈品直接拒绝\n5. 娱乐类：每月不超过 2-3 次，单次不超过日均预算的3倍\n6. 明显浪费、冲动消费、可替代方案更便宜的 → 拒绝\n\n请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。\n输出严格JSON，不要有任何其他文字：\n{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
+用户申请支出：${amount.toFixed(0)}元
+用途描述：${description}
+${tripContext}${recentContext}
+请根据用途描述判断属于哪个分类（餐饮/交通/购物/娱乐/其他）。
+输出严格JSON，不要有任何其他文字：
+{"approved": true/false, "reason": "简短理由（不超过30字）", "category": "分类名"}`;
 
   try {
     const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一位有鲜明个性的私人财务顾问，对合理支出温柔鼓励，对浪费行为犀利吐槽。输出必须是JSON格式。' }, { role: 'user', content: prompt }], temperature: 0.3 }),
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: AI_SYSTEM_MESSAGE }, { role: 'user', content: prompt }], temperature: 0.3 }),
     });
     const result = await resp.json();
     let content = result.choices[0].message.content.trim();
@@ -231,13 +286,13 @@ async function aiClassify(description) {
 
   if (!config.enabled || !apiKey) return null;
 
-  const prompt = `请判断以下消费描述属于哪个分类（餐饮/交通/购物/娱乐/其他），只输出分类名，不要其他文字。\n消费描述：${description}`;
+  const prompt = `消费描述：${description}`;
 
   try {
     const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一个消费分类助手，只输出分类名。' }, { role: 'user', content: prompt }], temperature: 0.1 }),
+      body: JSON.stringify({ model, messages: [{ role: 'system', content: AI_SYSTEM_MESSAGE }, { role: 'user', content: prompt }], temperature: 0.1 }),
     });
     const result = await resp.json();
     let content = result.choices[0].message.content.trim();
@@ -284,7 +339,7 @@ async function judgeExpense(amount, description) {
 }
 
 // ========== Judge Batch ==========
-async function judgeBatchExpense(items) {
+async function judgeBatchExpense(items, isTrip = false) {
   if (!items || !items.length) {
     return { approved: false, reason: '没有提交任何支出项', items: [] };
   }
@@ -312,7 +367,7 @@ async function judgeBatchExpense(items) {
   // AI 模式下直接让 AI 全权判断
   if (config.enabled && config.api_key) {
     try {
-      const aiResult = await aiJudge(totalAmount, `本次外出消费：${combinedDesc}`);
+      const aiResult = await aiJudge(totalAmount, `本次外出消费：${combinedDesc}`, null, 0, isTrip);
       if (aiResult) {
         return { approved: aiResult.approved, reason: aiResult.reason || 'AI判断通过', total: totalAmount, items: itemResults };
       }
@@ -345,22 +400,26 @@ async function judgeBatchExpense(items) {
   for (const [cat, batchAmount] of Object.entries(batchByCategory)) {
     const catLimit = limits[cat] || 0;
     const catSpent = await getCategorySpent(cat);
-    const catSpentRecent = await getCategorySpentRecent(cat, 1);
 
     const effectiveCatLimit = catLimit > 0 ? Math.min(catLimit, monthBudget) : 0;
     if (effectiveCatLimit > 0 && catSpent + batchAmount > effectiveCatLimit) {
       ruleReasons.push(`【${cat}】分类本月已用 ${catSpent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
       ruleApproved = false;
     }
-    if (effectiveCatLimit > 0 && catSpentRecent + batchAmount > effectiveCatLimit) {
-      ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
-      ruleApproved = false;
-    }
 
-    const shortTermLimit = monthBudget * 0.15;
-    if (catSpentRecent + batchAmount > shortTermLimit) {
-      ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超短时限额 ${shortTermLimit.toFixed(2)} 元`);
-      ruleApproved = false;
+    // 行程审批跳过短时高频和1小时限制
+    if (!isTrip) {
+      const catSpentRecent = await getCategorySpentRecent(cat, 1);
+      if (effectiveCatLimit > 0 && catSpentRecent + batchAmount > effectiveCatLimit) {
+        ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超上限 ${effectiveCatLimit.toFixed(2)} 元`);
+        ruleApproved = false;
+      }
+
+      const shortTermLimit = monthBudget * 0.15;
+      if (catSpentRecent + batchAmount > shortTermLimit) {
+        ruleReasons.push(`【${cat}】最近1小时内已用 ${catSpentRecent.toFixed(2)} 元，本次 ${batchAmount.toFixed(2)} 元将超短时限额 ${shortTermLimit.toFixed(2)} 元`);
+        ruleApproved = false;
+      }
     }
   }
 
@@ -485,46 +544,50 @@ async function generateMonthlyBill(month) {
 }
 
 // ========== Meal Suggestion ==========
-function _getMealByHour(hour) {
-  const meals = [
-    ['早餐', [...Array(5).keys()].map(i => i + 6)],            // 6-10
-    ['午餐', [...Array(6).keys()].map(i => i + 11)],           // 11-16
-    ['晚餐', [...Array(7).keys()].map(i => i + 17)],           // 17-23
-  ];
-  let remaining = [];
-  let found = false;
-  for (const [name, hours] of meals) {
-    if (hours.includes(hour)) {
-      found = true;
-      remaining.push(name);
-    } else if (found) {
-      remaining.push(name);
-    }
-  }
-  if (found) return [remaining[0], remaining];
-  // 0:00-5:59
-  if (hour < 6) return ['早餐', ['早餐', '午餐', '晚餐']];
+function _getMealByHour(hour, minute = 0) {
+  // 午餐: 10:30-13:59, 晚餐: 16:00-19:59, 其他时间无建议
+  const isLunch = (hour === 10 && minute >= 30) || (hour >= 11 && hour <= 13);
+  const isDinner = hour >= 16 && hour <= 19;
+
+  if (isLunch) return ['午餐', ['午餐', '晚餐']];
+  if (isDinner) return ['晚餐', ['晚餐']];
   return [null, []];
+}
+
+function _isInMealTime(dateStr, meal) {
+  const dt = new Date(dateStr.replace(' ', 'T'));
+  const h = dt.getHours(), m = dt.getMinutes();
+  if (meal === '午餐') return (h === 10 && m >= 30) || (h >= 11 && h <= 13);
+  if (meal === '晚餐') return h >= 16 && h <= 19;
+  return false;
+}
+
+async function hideMealSuggestion() {
+  const now = new Date();
+  const ts = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+  await setConfig('meal_suggestion_hidden', ts);
 }
 
 async function getMealSuggestion() {
   const now = new Date();
-  const hour = now.getHours();
-  const [meal, remainingMeals] = _getMealByHour(hour);
+  const [meal, remainingMeals] = _getMealByHour(now.getHours(), now.getMinutes());
   if (!meal) return { meal: null };
+
+  // 持久化检查：如果已标记隐藏且仍在同一餐段内，不显示
+  const hiddenTs = await getConfig('meal_suggestion_hidden', '');
+  if (hiddenTs) {
+    if (_isInMealTime(hiddenTs, meal)) {
+      return { meal: null };
+    } else {
+      await setConfig('meal_suggestion_hidden', '');
+    }
+  }
 
   // 如果当前餐段已有餐饮支出，不再提示
   const todayRecords = await getTodayRecords();
-  const mealHoursMap = {
-    '早餐': [...Array(5).keys()].map(i => i + 6),
-    '午餐': [...Array(6).keys()].map(i => i + 11),
-    '晚餐': [...Array(7).keys()].map(i => i + 17),
-  };
-  const currentMealHours = mealHoursMap[meal] || [];
   const hasMeal = todayRecords.some(r => {
     if (r.category !== '餐饮' || !r.approved) return false;
-    const rh = new Date(r.date.replace(' ', 'T')).getHours();
-    return currentMealHours.includes(rh);
+    return _isInMealTime(r.date, meal);
   });
   if (hasMeal) return { meal: null };
 
@@ -571,12 +634,12 @@ async function aiRecommendMeal(meal, budget, preferences) {
   const model = config.model || 'deepseek-chat';
 
   const prefText = preferences ? `\n用户饮食偏好/忌口：${preferences}` : '';
-  const prompt = `你是贴心的饮食顾问，帮用户推荐今天${meal}吃什么。\n\n用户预算：建议控制在 ${budget.toFixed(0)} 元内。${prefText}\n\n要求：\n1. 推荐 2-3 个符合预算的食物选项\n2. 每个选项包含：名称、预估价格（整数）、一句话推荐理由\n3. 推荐要接地气、实用，避开用户忌口的食物\n4. 如果预算很低（<15元），优先推荐省钱又饱腹的选择\n5. 如果预算充裕（>40元），可以推荐稍微丰富一点的\n\n输出严格JSON数组，不要有任何其他文字：\n[{"name": "选项名称", "price": 预估价格, "reason": "推荐理由"}]`;
+  const prompt = `帮用户推荐今天${meal}吃什么。\n\n用户预算：建议控制在 ${budget.toFixed(0)} 元内。${prefText}\n\n输出严格JSON数组，不要有任何其他文字：\n[{"name": "选项名称", "price": 预估价格, "reason": "推荐理由"}]`;
 
   const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'system', content: '你是一个贴心的饮食顾问，帮助用户选择今天吃什么。输出必须是JSON格式。' }, { role: 'user', content: prompt }], temperature: 0.7 }),
+    body: JSON.stringify({ model, messages: [{ role: 'system', content: AI_SYSTEM_MESSAGE }, { role: 'user', content: prompt }], temperature: 0.7 }),
   });
   const result = await resp.json();
   let content = result.choices[0].message.content.trim();
